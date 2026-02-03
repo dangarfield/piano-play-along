@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Music Practice App</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/src/styles/main.css">
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <h1>Music Practice</h1>
+      <div class="controls">
+        <button id="load-file-btn" class="btn btn-primary">Load MusicXML</button>
+        <button id="clear-file-btn" class="btn" style="display: none;">Clear Score</button>
+        <select id="midi-device-select" class="select" disabled>
+          <option value="">No MIDI device</option>
+        </select>
+        <select id="practice-mode-select" class="select">
+          <option value="both">Both Hands</option>
+          <option value="right">Right Hand Only</option>
+          <option value="left">Left Hand Only</option>
+        </select>
+        <select id="zoom-select" class="select">
+          <option value="0.8">Small</option>
+          <option value="1.0" selected>Normal</option>
+          <option value="1.5">Large</option>
+        </select>
+        <select id="keyboard-size-select" class="select">
+          <option value="100" selected>Normal</option>
+          <option value="135">Large</option>
+          <option value="0">Hide</option>
+        </select>
+      </div>
+    </header>
+
+    <main class="main">
+      <div class="score-container">
+        <div id="score-display"></div>
+        <div id="loading-message" class="message">Load a MusicXML file to begin</div>
+      </div>
+
+      <div class="practice-panel">
+        <div class="practice-controls">
+          <button id="pause-btn" class="btn btn-warning" disabled>Pause</button>
+          <button id="reset-btn" class="btn" disabled>Back to Start</button>
+        </div>
+
+        <div class="status-panel">
+          <div class="status-item">
+            <span class="label">Measure:</span>
+            <span id="current-measure">-</span>
+          </div>
+          <div class="status-item">
+            <span class="label">Progress:</span>
+            <span id="progress">0%</span>
+          </div>
+          <div class="status-item">
+            <span class="label">Next Notes:</span>
+            <span id="next-notes">-</span>
+          </div>
+        </div>
+
+        <div class="midi-status">
+          <div class="status-indicator" id="midi-status">
+            <span class="dot"></span>
+            <span id="midi-status-text">MIDI: Not connected</span>
+          </div>
+          <div class="status-indicator" id="voice-status">
+            <span class="dot"></span>
+            <span id="voice-status-text">Voice: Listening</span>
+          </div>
+        </div>
+
+        <div class="voice-commands">
+          <h3>Voice Commands</h3>
+          <ul>
+            <li><strong>measure 4 / bar 4</strong> - jump to measure</li>
+            <li><strong>back</strong> - previous measure</li>
+            <li><strong>forward</strong> - next measure</li>
+            <li><strong>start</strong> - back to start</li>
+            <li><strong>left hand / right hand / both hands</strong> - change mode</li>
+            <li><strong>mute</strong> - ignore commands</li>
+            <li><strong>unmute</strong> - listen again</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+
+    <div class="keyboard-container">
+      <div id="piano-keyboard-container"></div>
+    </div>
+  </div>
+
+  <input type="file" id="file-input" accept=".xml,.musicxml,.mxl" style="display: none;">
+  <script type="module" src="/src/app.ts"></script>
+</body>
+</html>
