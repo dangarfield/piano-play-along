@@ -17,7 +17,7 @@ class App {
   private scoreRenderer: ScoreRenderer;
   private practiceEngine: PracticeEngine;
   private uiController: UIController;
-  private keyboard: SimpleKeyboard;
+  private keyboard!: SimpleKeyboard;
   private readonly CONFIG_KEY = 'piano-play-along-config';
   private readonly SCORE_KEY = 'piano-play-along-saved-score';
 
@@ -135,6 +135,22 @@ class App {
   }
 
   private setupEventListeners(): void {
+    // Panel toggle
+    const togglePanelBtn = document.getElementById('toggle-panel-btn');
+    const practicePanel = document.querySelector('.practice-panel');
+    
+    togglePanelBtn?.addEventListener('click', () => {
+      const isCollapsed = practicePanel?.classList.toggle('collapsed');
+      if (togglePanelBtn) {
+        togglePanelBtn.textContent = isCollapsed ? '▶' : '◀';
+      }
+      
+      // Re-render score after panel animation completes
+      setTimeout(() => {
+        this.scoreRenderer.render();
+      }, 300);
+    });
+    
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
       // Ignore if typing in an input/select
@@ -381,13 +397,6 @@ class App {
     if (clearBtn) clearBtn.style.display = 'none';
     
     console.log('Score cleared');
-  }
-
-  private midiNoteToName(midiNote: number): string {
-    const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const octave = Math.floor(midiNote / 12) - 1;
-    const noteName = noteNames[midiNote % 12];
-    return `${noteName}${octave}`;
   }
 
   private setupVoiceCommands(): void {

@@ -17,25 +17,130 @@ body {
   height: 100vh;
 }
 
-.header {
-  background: #2a2a2a;
-  padding: 1rem 2rem;
-  border-bottom: 2px solid #3a3a3a;
+.main {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex: 1;
+  overflow: hidden;
+  padding-bottom: 100px;
 }
 
-.header h1 {
+.score-container {
+  flex: 1;
+  background: #ffffff;
+  overflow: auto;
+  position: relative;
+  padding: 2rem;
+}
+
+#score-display {
+  min-height: 100%;
+}
+
+.message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #999;
+  font-size: 1.2rem;
+}
+
+.practice-panel {
+  width: 350px;
+  background: #2a2a2a;
+  border-left: 2px solid #3a3a3a;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  flex-shrink: 0;
+  transition: margin-right 0.3s ease;
+}
+
+.practice-panel.collapsed {
+  margin-right: -350px;
+}
+
+.toggle-panel-btn {
+  position: absolute;
+  left: -40px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 80px;
+  padding: 0;
+  background: #2a2a2a;
+  border: 2px solid #3a3a3a;
+  border-right: none;
+  border-radius: 4px 0 0 4px;
+  font-size: 1.2rem;
+  z-index: 1000;
+  cursor: pointer;
+  color: #e0e0e0;
+}
+
+.panel-content {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  overflow-y: auto;
+}
+
+.practice-panel.collapsed .panel-content {
+  display: none;
+}
+
+.panel-content h1 {
   font-size: 1.5rem;
   font-weight: 600;
   color: #4a9eff;
+  margin: 0;
+  text-align: center;
 }
 
-.controls {
+.file-controls {
   display: flex;
-  gap: 1rem;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings-section {
+  background: #1a1a1a;
+  border-radius: 4px;
+  padding: 1rem;
+}
+
+.settings-section h3 {
+  font-size: 0.9rem;
+  margin-bottom: 0.75rem;
+  color: #4a9eff;
+  font-weight: 600;
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.setting-item {
+  display: flex;
+  flex-direction: row;
   align-items: center;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.setting-item label {
+  font-size: 0.85rem;
+  color: #999;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.setting-item .select {
+  flex: 1;
+  min-width: 0;
 }
 
 .btn {
@@ -85,11 +190,20 @@ body {
   background: #e68900;
 }
 
+.btn.resume {
+  background: #4caf50;
+  color: white;
+}
+
+.btn.resume:hover:not(:disabled) {
+  background: #45a049;
+}
+
 .select {
   padding: 0.5rem;
   border: 1px solid #3a3a3a;
   border-radius: 4px;
-  background: #2a2a2a;
+  background: #1a1a1a;
   color: #e0e0e0;
   font-size: 0.9rem;
   cursor: pointer;
@@ -98,44 +212,6 @@ body {
 .select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.main {
-  display: flex;
-  flex: 1;
-  overflow: hidden;
-  padding-bottom: 100px; /* Account for keyboard height */
-}
-
-.score-container {
-  flex: 1;
-  background: #ffffff;
-  overflow: auto;
-  position: relative;
-  padding: 2rem;
-}
-
-#score-display {
-  min-height: 100%;
-}
-
-.message {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  color: #999;
-  font-size: 1.2rem;
-}
-
-.practice-panel {
-  width: 350px;
-  background: #2a2a2a;
-  border-left: 2px solid #3a3a3a;
-  display: flex;
-  flex-direction: column;
-  padding: 1.5rem;
-  gap: 1.5rem;
 }
 
 .practice-controls {
