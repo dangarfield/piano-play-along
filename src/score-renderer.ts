@@ -29,7 +29,9 @@ export class ScoreRenderer {
     });
     
     // Access drawing parameters to show note names
+    // @ts-ignore - accessing protected property
     if (this.osmd.drawingParameters) {
+      // @ts-ignore - accessing protected property
       this.osmd.drawingParameters.drawNoteNames = true;
     }
 
@@ -58,7 +60,9 @@ export class ScoreRenderer {
     try {
       const firstMeasure = this.osmd.Sheet.SourceMeasures[0];
       
+      // @ts-ignore - accessing private property
       if (firstMeasure.firstInstructionsStaffEntries) {
+        // @ts-ignore - accessing private property
         for (const staffEntry of firstMeasure.firstInstructionsStaffEntries) {
           if (staffEntry?.Instructions) {
             for (const instruction of staffEntry.Instructions) {

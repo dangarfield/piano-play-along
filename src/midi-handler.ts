@@ -56,6 +56,7 @@ export class MidiHandler {
       const note = e.note.number;
       this.pressedNotes.add(note);
       if (this.onNoteOnCallback) {
+        // @ts-ignore - rawVelocity exists at runtime
         this.onNoteOnCallback(note, e.rawVelocity || 127);
       }
     });
