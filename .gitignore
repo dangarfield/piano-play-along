@@ -40,7 +40,6 @@ Thumbs.db
 .cache/
 
 # Package manager
-pnpm-lock.yaml
 yarn.lock
 package-lock.json
 
