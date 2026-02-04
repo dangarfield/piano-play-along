@@ -42,7 +42,6 @@ export class ScoreRenderer {
 
     // Initialize cursor
     this.osmd.cursor.show();
-    this.currentCursorIndex = 0;
     
     // Draw note names on top of notes (after rendering and cursor)
     setTimeout(() => {
