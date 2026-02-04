@@ -1,13 +1,17 @@
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import type { Note, NoteGroup } from './shared/types';
+import JSZip from 'jszip';
 
 export class ScoreRenderer {
   private osmd: OpenSheetMusicDisplay | null = null;
   private noteGroups: NoteGroup[] = [];
+  private noteGroupToCursorPosition: Map<number, number> = new Map();
+  private sourceNoteToGroupIndex: Map<any, number> = new Map();
   private useFlats: boolean = false;
   private zoomLevel: number = 1.25;
   private showNoteNames: boolean = false;
   private noteElementToGroupIndex: Map<Element, number> = new Map();
+  private currentCursorPosition: number = 0;
 
   async loadScore(file: File): Promise<void> {
     const container = document.getElementById('score-display');
@@ -29,9 +33,31 @@ export class ScoreRenderer {
       drawPartNames: true,
     });
 
-    // Load the file - OSMD expects string content
-    const text = await file.text();
-    await this.osmd.load(text);
+    // Load the file - handle both .xml and .mxl
+    let xmlContent: string;
+    
+    if (file.name.toLowerCase().endsWith('.mxl')) {
+      // Compressed MusicXML - unzip and extract
+      const arrayBuffer = await file.arrayBuffer();
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      
+      // Find the main XML file (usually META-INF/container.xml points to it, but we'll just find any .xml)
+      const xmlFiles = Object.keys(zip.files).filter(name => 
+        name.toLowerCase().endsWith('.xml') && !name.includes('META-INF')
+      );
+      
+      if (xmlFiles.length === 0) {
+        throw new Error('No XML file found in MXL archive');
+      }
+      
+      // Use the first XML file found (usually there's only one)
+      xmlContent = await zip.files[xmlFiles[0]].async('text');
+    } else {
+      // Uncompressed MusicXML
+      xmlContent = await file.text();
+    }
+    
+    await this.osmd.load(xmlContent);
     
     // Parse key signature from OSMD after loading (before rendering)
     this.parseKeySignatureFromOSMD();
@@ -44,17 +70,13 @@ export class ScoreRenderer {
     this.osmd.cursor.show();
     
     // Draw note names on top of notes (after rendering and cursor)
-    setTimeout(() => {
-      this.drawNoteNames();
-    }, 50);
+    this.drawNoteNames();
 
     // Parse notes from the score
     this.parseNotes();
     
     // Setup click handlers after everything is ready
-    setTimeout(() => {
-      this.setupNoteClickHandlers();
-    }, 100);
+    this.setupNoteClickHandlers();
   }
 
   private setupNoteClickHandlers(): void {
@@ -63,9 +85,45 @@ export class ScoreRenderer {
     const scoreContainer = document.getElementById('score-display');
     if (!scoreContainer) return;
     
-    // Add CSS for measure hover
+    // Build a map from SVG elements to note group indices using source notes
+    const svgElementToGroupIndex = new Map<Element, number>();
+    
+    console.log('Setting up note click handlers, sourceNoteToGroupIndex size:', this.sourceNoteToGroupIndex.size);
+    
+    this.osmd.GraphicSheet.MeasureList.forEach((measureList: any) => {
+      measureList.forEach((measure: any) => {
+        measure.staffEntries.forEach((staffEntry: any) => {
+          staffEntry.graphicalVoiceEntries.forEach((graphicalVoiceEntry: any) => {
+            graphicalVoiceEntry.notes.forEach((graphicalNote: any) => {
+              const sourceNote = graphicalNote.sourceNote;
+              if (!sourceNote) return;
+              
+              // Look up the note group index using the source note object
+              const groupIndex = this.sourceNoteToGroupIndex.get(sourceNote);
+              if (groupIndex !== undefined) {
+                const svgElement = graphicalNote.getSVGGElement?.();
+                if (svgElement) {
+                  // Map the main note element and all its children
+                  svgElementToGroupIndex.set(svgElement, groupIndex);
+                  
+                  // Also map all child elements (notehead, stem, flag, etc.)
+                  const children = svgElement.querySelectorAll('*');
+                  children.forEach((child: Element) => {
+                    svgElementToGroupIndex.set(child, groupIndex);
+                  });
+                }
+              }
+            });
+          });
+        });
+      });
+    });
+    
+    console.log('SVG elements mapped:', svgElementToGroupIndex.size);
+    
+    // Add CSS for note hover
     const style = document.createElement('style');
-    style.textContent = '.vf-measure { cursor: pointer; }';
+    style.textContent = '.vf-notehead, .vf-stem, .vf-flag { cursor: pointer; }';
     document.head.appendChild(style);
     
     scoreContainer.addEventListener('click', (e) => {
@@ -73,31 +131,42 @@ export class ScoreRenderer {
         return;
       }
       
-      // Find the clicked measure element
       const target = e.target as Element;
+      console.log('Clicked element:', target.className);
+      
+      // Check if the clicked element itself is mapped
+      let groupIndex = svgElementToGroupIndex.get(target);
+      
+      if (groupIndex === undefined) {
+        // Try parent elements
+        let parent = target.parentElement;
+        while (parent && groupIndex === undefined) {
+          groupIndex = svgElementToGroupIndex.get(parent);
+          parent = parent.parentElement;
+        }
+      }
+      
+      console.log('Mapped to group index:', groupIndex);
+      
+      if (groupIndex !== undefined) {
+        this.onNoteClickCallback(groupIndex);
+        return;
+      }
+      
+      // Fallback: click on measure goes to first note in measure
       const measureElement = target.closest('.vf-measure');
-      
-      if (!measureElement) {
-        return;
-      }
-      
-      // Get measure ID (it's just a number like "12")
-      const measureId = measureElement.id;
-      if (!measureId) {
-        return;
-      }
-      
-      // Parse the measure number (ID is 1-indexed, measureIndex is 0-indexed)
-      const measureNumber = parseInt(measureId, 10) - 1;
-      if (isNaN(measureNumber) || measureNumber < 0) {
-        return;
-      }
-      
-      // Find first note group with this measure index
-      const targetIndex = this.noteGroups.findIndex(group => group.measureIndex === measureNumber);
-      
-      if (targetIndex !== -1) {
-        this.onNoteClickCallback(targetIndex);
+      if (measureElement) {
+        console.log('Fallback to measure click');
+        const measureId = measureElement.id;
+        if (measureId) {
+          const measureNumber = parseInt(measureId, 10) - 1;
+          if (!isNaN(measureNumber) && measureNumber >= 0) {
+            const targetIndex = this.noteGroups.findIndex(group => group.measureIndex === measureNumber);
+            if (targetIndex !== -1) {
+              this.onNoteClickCallback(targetIndex);
+            }
+          }
+        }
       }
     });
   }
@@ -234,14 +303,28 @@ export class ScoreRenderer {
     return this.useFlats;
   }
 
+  private midiToNoteName(midiNote: number): string {
+    const noteNames = this.useFlats 
+      ? ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B']
+      : ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+    const octave = Math.floor(midiNote / 12) - 1;
+    const noteName = noteNames[midiNote % 12];
+    return `${noteName}${octave}`;
+  }
+
   private parseNotes(): void {
     if (!this.osmd) return;
 
     this.noteGroups = [];
+    this.noteGroupToCursorPosition.clear();
+    this.sourceNoteToGroupIndex.clear();
     const sheet = this.osmd.Sheet;
     
     const notesByTimestamp = new Map<number, Note[]>();
+    const timestampToCursorPosition = new Map<number, number>();
+    const timestampToSourceNotes = new Map<number, any[]>();
     let globalTimestamp = 0;
+    let cursorPosition = 0;
 
     try {
       // First, build a map of graphical notes to their visual measure index
@@ -270,12 +353,8 @@ export class ScoreRenderer {
         for (const verticalContainer of measure.VerticalSourceStaffEntryContainers) {
           const localTimestamp = verticalContainer.Timestamp.RealValue;
           
-          if (!measureTimestamps.has(localTimestamp)) {
-            measureTimestamps.set(localTimestamp, globalTimestamp);
-            globalTimestamp++;
-          }
-          
-          const timestamp = measureTimestamps.get(localTimestamp)!;
+          // Check if this container has any actual notes (not just rests)
+          let hasNotes = false;
           
           for (let staffIndex = 0; staffIndex < verticalContainer.StaffEntries.length; staffIndex++) {
             const entry = verticalContainer.StaffEntries[staffIndex];
@@ -290,6 +369,18 @@ export class ScoreRenderer {
               
               for (const note of voiceEntry.Notes) {
                 if (!note?.Pitch) continue;
+                
+                // This container has at least one note
+                hasNotes = true;
+                
+                // Assign timestamp only when we find the first note at this position
+                if (!measureTimestamps.has(localTimestamp)) {
+                  measureTimestamps.set(localTimestamp, globalTimestamp);
+                  timestampToCursorPosition.set(globalTimestamp, cursorPosition);
+                  globalTimestamp++;
+                }
+                
+                const timestamp = measureTimestamps.get(localTimestamp)!;
                 
                 try {
                   const midiNote = note.Pitch.getHalfTone() + 12;
@@ -309,12 +400,21 @@ export class ScoreRenderer {
                     notesByTimestamp.set(timestamp, []);
                   }
                   notesByTimestamp.get(timestamp)!.push(noteData);
+                  
+                  // Store source note for click mapping
+                  if (!timestampToSourceNotes.has(timestamp)) {
+                    timestampToSourceNotes.set(timestamp, []);
+                  }
+                  timestampToSourceNotes.get(timestamp)!.push(note);
                 } catch (e) {
                   console.warn('Failed to parse note:', e);
                 }
               }
             }
           }
+          
+          // Increment cursor position for every container (including rests)
+          cursorPosition++;
         }
       }
 
@@ -323,13 +423,43 @@ export class ScoreRenderer {
       for (const timestamp of sortedTimestamps) {
         const notes = notesByTimestamp.get(timestamp)!;
         if (notes.length > 0) {
+          const noteGroupIndex = this.noteGroups.length;
           this.noteGroups.push({
             notes,
             timestamp,
             measureIndex: notes[0].measureIndex,
           });
+          
+          // Map note group index to cursor position
+          const cursorPos = timestampToCursorPosition.get(timestamp);
+          if (cursorPos !== undefined) {
+            this.noteGroupToCursorPosition.set(noteGroupIndex, cursorPos);
+          }
+          
+          // Map all source notes in this group to the note group index
+          const sourceNotes = timestampToSourceNotes.get(timestamp);
+          if (sourceNotes) {
+            sourceNotes.forEach(sourceNote => {
+              this.sourceNoteToGroupIndex.set(sourceNote, noteGroupIndex);
+            });
+          }
         }
       }
+      
+      // Log bars 5 and 6 (measureIndex 4 and 5)
+      console.log('=== BARS 5 AND 6 ===');
+      const bars5and6 = this.noteGroups.filter(g => g.measureIndex === 4 || g.measureIndex === 5);
+      bars5and6.forEach(group => {
+        console.log(`Bar ${group.measureIndex + 1}, Timestamp ${group.timestamp}:`, 
+          group.notes.map(n => ({
+            pitch: n.pitch,
+            hand: n.hand,
+            duration: n.duration,
+            noteName: this.midiToNoteName(n.pitch)
+          }))
+        );
+      });
+      console.log('===================');
     } catch (error) {
       console.error('Error parsing notes:', error);
       throw error;
@@ -343,13 +473,45 @@ export class ScoreRenderer {
   moveCursorToNoteGroup(index: number): void {
     if (!this.osmd || index < 0 || index >= this.noteGroups.length) return;
     
-    // Reset cursor to beginning
-    this.osmd.cursor.reset();
+    // Get the actual cursor position for this note group
+    const targetPosition = this.noteGroupToCursorPosition.get(index);
+    if (targetPosition === undefined) return;
     
-    // Move cursor forward index times
-    for (let i = 0; i < index && !this.osmd.cursor.iterator.EndReached; i++) {
-      this.osmd.cursor.next();
+    // Calculate the difference from current position
+    const diff = targetPosition - this.currentCursorPosition;
+    
+    if (diff === 0) {
+      // Already at the right position
+      this.scrollCursorIntoView();
+      return;
     }
+    
+    if (diff > 0) {
+      // Move forward
+      for (let i = 0; i < diff && !this.osmd.cursor.iterator.EndReached; i++) {
+        this.osmd.cursor.next();
+      }
+    } else {
+      // Moving backward - need to reset and move forward
+      // But only if the distance backward is significant
+      if (Math.abs(diff) > targetPosition / 2) {
+        // If we're going back more than halfway, just reset and go forward
+        this.osmd.cursor.reset();
+        this.currentCursorPosition = 0;
+        for (let i = 0; i < targetPosition && !this.osmd.cursor.iterator.EndReached; i++) {
+          this.osmd.cursor.next();
+        }
+      } else {
+        // Otherwise reset and move forward (no backward movement in OSMD cursor)
+        this.osmd.cursor.reset();
+        this.currentCursorPosition = 0;
+        for (let i = 0; i < targetPosition && !this.osmd.cursor.iterator.EndReached; i++) {
+          this.osmd.cursor.next();
+        }
+      }
+    }
+    
+    this.currentCursorPosition = targetPosition;
     
     // Auto-scroll to keep cursor in view
     this.scrollCursorIntoView();
@@ -358,43 +520,42 @@ export class ScoreRenderer {
   scrollCursorIntoView(): void {
     if (!this.osmd) return;
     
-    setTimeout(() => {
-      const scoreContainer = document.querySelector('.score-container');
-      if (!scoreContainer) return;
-      
-      // Find the cursor image element
-      const cursorImg = document.querySelector('[id^="cursorImg-"]') as HTMLElement;
-      if (!cursorImg) {
-        console.log('Cursor image not found');
-        return;
-      }
-      
-      // Get the top position from the style attribute
-      const topStyle = cursorImg.style.top;
-      if (!topStyle) {
-        console.log('Cursor top position not found');
-        return;
-      }
-      
-      // Parse the pixel value
-      const cursorTop = parseFloat(topStyle);
-      const cursorHeight = parseFloat(cursorImg.style.height || '180');
-      
-      const containerRect = scoreContainer.getBoundingClientRect();
-      
-      // Position cursor at top 1/4 of the viewport
-      const targetScroll = cursorTop + (cursorHeight / 2) - (containerRect.height / 4);
-      
-      scoreContainer.scrollTo({
-        top: Math.max(0, targetScroll),
-        behavior: 'smooth'
-      });
-    }, 100);
+    const scoreContainer = document.querySelector('.score-container');
+    if (!scoreContainer) return;
+    
+    // Find the cursor image element
+    const cursorImg = document.querySelector('[id^="cursorImg-"]') as HTMLElement;
+    if (!cursorImg) {
+      console.log('Cursor image not found');
+      return;
+    }
+    
+    // Get the top position from the style attribute
+    const topStyle = cursorImg.style.top;
+    if (!topStyle) {
+      console.log('Cursor top position not found');
+      return;
+    }
+    
+    // Parse the pixel value
+    const cursorTop = parseFloat(topStyle);
+    const cursorHeight = parseFloat(cursorImg.style.height || '180');
+    
+    const containerRect = scoreContainer.getBoundingClientRect();
+    
+    // Position cursor at top 1/4 of the viewport
+    const targetScroll = cursorTop + (cursorHeight / 2) - (containerRect.height / 4);
+    
+    scoreContainer.scrollTo({
+      top: Math.max(0, targetScroll),
+      behavior: 'smooth'
+    });
   }
 
   resetCursor(): void {
     if (!this.osmd) return;
     this.osmd.cursor.reset();
+    this.currentCursorPosition = 0;
     
     // Scroll to top
     const scoreContainer = document.querySelector('.score-container');

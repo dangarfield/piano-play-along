@@ -380,8 +380,17 @@ class App {
     try {
       this.uiController.showMessage('Loading score...');
       
-      // Read file content
-      const content = await file.text();
+      // For .mxl files, we need to store the binary data
+      let content: string;
+      if (file.name.toLowerCase().endsWith('.mxl')) {
+        // Store as base64 for binary data
+        const arrayBuffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        content = 'MXL:' + btoa(String.fromCharCode(...bytes));
+      } else {
+        // Store as text for XML
+        content = await file.text();
+      }
       
       // Save score
       this.saveScore(content);
@@ -431,8 +440,22 @@ class App {
         this.uiController.showMessage('Loading saved score...');
         
         // Create a File object from saved content
-        const blob = new Blob([savedScore], { type: 'application/xml' });
-        const file = new File([blob], 'saved-score.xml', { type: 'application/xml' });
+        let file: File;
+        if (savedScore.startsWith('MXL:')) {
+          // Restore binary MXL file
+          const base64 = savedScore.substring(4);
+          const binaryString = atob(base64);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const blob = new Blob([bytes], { type: 'application/vnd.recordare.musicxml' });
+          file = new File([blob], 'saved-score.mxl', { type: 'application/vnd.recordare.musicxml' });
+        } else {
+          // Restore XML file
+          const blob = new Blob([savedScore], { type: 'application/xml' });
+          file = new File([blob], 'saved-score.xml', { type: 'application/xml' });
+        }
         
         // Apply saved zoom level before loading
         const config = this.getConfig();
