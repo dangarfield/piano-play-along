@@ -10,6 +10,7 @@ interface AppConfig {
   zoomLevel: number;
   voiceCommandsMuted: boolean;
   keyboardSize: number;
+  showNoteNames: boolean;
 }
 
 class App {
@@ -41,9 +42,10 @@ class App {
     }
     return {
       practiceMode: 'both',
-      zoomLevel: 1.0,
+      zoomLevel: 1.25,
       voiceCommandsMuted: false,
       keyboardSize: 100,
+      showNoteNames: false,
     };
   }
 
@@ -72,6 +74,28 @@ class App {
     
     // Try to load saved score
     await this.loadSavedScore();
+    
+    // Re-render on window resize
+    window.addEventListener('resize', () => {
+      this.scoreRenderer.render();
+      this.scoreRenderer.scrollCursorIntoView();
+      
+      // Re-render keyboard to recalculate black key positions
+      if (this.keyboard) {
+        const container = document.getElementById('piano-keyboard-container');
+        if (container) {
+          this.keyboard.destroy();
+          this.keyboard = new SimpleKeyboard(container);
+          this.keyboard.setUseFlats(this.scoreRenderer.getUseFlats());
+          
+          // Restore highlighted notes
+          const expectedNotes = this.practiceEngine.getCurrentExpectedNotes();
+          expectedNotes.forEach(note => {
+            this.keyboard.highlightNote(note);
+          });
+        }
+      }
+    });
   }
 
   private initializeKeyboard(): void {
@@ -148,6 +172,7 @@ class App {
       // Re-render score after panel animation completes
       setTimeout(() => {
         this.scoreRenderer.render();
+        this.scoreRenderer.scrollCursorIntoView();
       }, 300);
     });
     
@@ -161,16 +186,55 @@ class App {
       if (e.key === 'ArrowRight') {
         e.preventDefault();
         const state = this.practiceEngine.getState();
-        const nextIndex = state.currentNoteGroupIndex + 1;
-        if (nextIndex < state.score.length) {
-          this.practiceEngine.jumpToNoteGroup(nextIndex);
+        
+        if (e.ctrlKey || e.metaKey) {
+          // Ctrl+Right: Next measure
+          const currentMeasure = state.score[state.currentNoteGroupIndex]?.measureIndex;
+          if (currentMeasure !== undefined) {
+            const nextMeasure = currentMeasure + 1;
+            const targetIndex = state.score.findIndex(group => group.measureIndex === nextMeasure);
+            if (targetIndex !== -1) {
+              this.practiceEngine.jumpToNoteGroup(targetIndex);
+            }
+          }
+        } else {
+          // Right: Next note group
+          const nextIndex = state.currentNoteGroupIndex + 1;
+          if (nextIndex < state.score.length) {
+            this.practiceEngine.jumpToNoteGroup(nextIndex);
+          }
         }
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         const state = this.practiceEngine.getState();
-        const prevIndex = state.currentNoteGroupIndex - 1;
-        if (prevIndex >= 0) {
-          this.practiceEngine.jumpToNoteGroup(prevIndex);
+        
+        if (e.ctrlKey || e.metaKey) {
+          // Ctrl+Left: Start of current measure or previous measure
+          const currentMeasure = state.score[state.currentNoteGroupIndex]?.measureIndex;
+          if (currentMeasure !== undefined) {
+            // Find first note group in current measure
+            const currentMeasureStart = state.score.findIndex(group => group.measureIndex === currentMeasure);
+            
+            // If already at start of measure, go to previous measure
+            if (state.currentNoteGroupIndex === currentMeasureStart) {
+              const prevMeasure = currentMeasure - 1;
+              if (prevMeasure >= 0) {
+                const targetIndex = state.score.findIndex(group => group.measureIndex === prevMeasure);
+                if (targetIndex !== -1) {
+                  this.practiceEngine.jumpToNoteGroup(targetIndex);
+                }
+              }
+            } else {
+              // Go to start of current measure
+              this.practiceEngine.jumpToNoteGroup(currentMeasureStart);
+            }
+          }
+        } else {
+          // Left: Previous note group
+          const prevIndex = state.currentNoteGroupIndex - 1;
+          if (prevIndex >= 0) {
+            this.practiceEngine.jumpToNoteGroup(prevIndex);
+          }
         }
       }
     });
@@ -225,7 +289,7 @@ class App {
     
     // Load saved zoom level - ensure it matches option values
     if (zoomSelect) {
-      const zoomValue = config.zoomLevel.toFixed(1); // Convert to "1.0" format
+      const zoomValue = config.zoomLevel.toString();
       zoomSelect.value = zoomValue;
     }
     
@@ -249,6 +313,21 @@ class App {
       const size = parseInt((e.target as HTMLSelectElement).value);
       this.setKeyboardSize(size);
       this.saveConfig({ keyboardSize: size });
+    });
+
+    // Show note names checkbox
+    const showNoteNamesCheckbox = document.getElementById('show-note-names') as HTMLInputElement;
+    
+    // Load saved setting
+    if (showNoteNamesCheckbox) {
+      showNoteNamesCheckbox.checked = config.showNoteNames;
+      this.scoreRenderer.setShowNoteNames(config.showNoteNames);
+    }
+    
+    showNoteNamesCheckbox?.addEventListener('change', (e) => {
+      const show = (e.target as HTMLInputElement).checked;
+      this.scoreRenderer.setShowNoteNames(show);
+      this.saveConfig({ showNoteNames: show });
     });
 
     // Control buttons
@@ -310,11 +389,17 @@ class App {
       // Apply saved zoom level before loading
       const config = this.getConfig();
       this.scoreRenderer.setZoom(config.zoomLevel);
+      this.scoreRenderer.setShowNoteNames(config.showNoteNames);
       
       await this.scoreRenderer.loadScore(file);
       const noteGroups = this.scoreRenderer.getNoteGroups();
       
       this.practiceEngine.loadScore(noteGroups);
+      
+      // Set up note click handler
+      this.scoreRenderer.onNoteClick((index) => {
+        this.practiceEngine.jumpToNoteGroup(index);
+      });
       
       // Update keyboard to use flats or sharps based on key signature
       this.keyboard.setUseFlats(this.scoreRenderer.getUseFlats());
@@ -352,6 +437,7 @@ class App {
         // Apply saved zoom level before loading
         const config = this.getConfig();
         this.scoreRenderer.setZoom(config.zoomLevel);
+        this.scoreRenderer.setShowNoteNames(config.showNoteNames);
         
         await this.scoreRenderer.loadScore(file);
         const noteGroups = this.scoreRenderer.getNoteGroups();
@@ -369,6 +455,11 @@ class App {
         // Show clear button
         const clearBtn = document.getElementById('clear-file-btn');
         if (clearBtn) clearBtn.style.display = 'block';
+        
+        // Set up note click handler
+        this.scoreRenderer.onNoteClick((index) => {
+          this.practiceEngine.jumpToNoteGroup(index);
+        });
         
         // Auto-start practice
         this.practiceEngine.start();
@@ -417,13 +508,29 @@ class App {
     let isMuted = config.voiceCommandsMuted;
     this.updateVoiceStatus(isMuted);
 
+    let restartAttempts = 0;
+    const maxRestartAttempts = 3;
+
     recognition.onstart = () => {
       console.log('Speech recognition started');
+      restartAttempts = 0;
     };
 
     recognition.onend = () => {
       console.log('Speech recognition ended, restarting...');
-      recognition.start(); // Auto-restart
+      
+      // Prevent infinite restart loop
+      if (restartAttempts < maxRestartAttempts) {
+        restartAttempts++;
+        try {
+          recognition.start();
+        } catch (e) {
+          console.error('Failed to restart recognition:', e);
+        }
+      } else {
+        console.log('Max restart attempts reached, stopping voice recognition');
+        this.updateVoiceStatus(true);
+      }
     };
 
     recognition.onresult = (event: any) => {
@@ -459,10 +566,21 @@ class App {
 
     recognition.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error);
+      
+      // Don't restart on certain errors
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        console.log('Speech recognition not allowed, disabling');
+        this.updateVoiceStatus(true);
+        restartAttempts = maxRestartAttempts;
+      }
     };
 
-    recognition.start();
-    console.log('Voice commands enabled');
+    try {
+      recognition.start();
+      console.log('Voice commands enabled');
+    } catch (e) {
+      console.error('Failed to start voice recognition:', e);
+    }
   }
 
   private updateVoiceStatus(muted: boolean): void {

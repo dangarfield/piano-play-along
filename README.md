@@ -18,9 +18,13 @@ Open in Chrome, Edge, or Opera (Web MIDI API required). Connect MIDI keyboard, l
 - **Voice commands** - Hands-free navigation (measure jumping, mode switching)
 - **Auto-scroll** - Score follows cursor at top 1/4 of viewport
 - **Key signature detection** - Automatically displays flats or sharps based on score
-- **Keyboard shortcuts** - Arrow keys to navigate between note groups
-- **Configurable UI** - Adjustable score zoom and keyboard size
+- **Keyboard shortcuts** - Arrow keys for note groups, Ctrl+Arrow for measures
+- **Configurable UI** - Adjustable score zoom (5 levels) and keyboard size
+- **Collapsible panel** - Right panel can be hidden for more score space
+- **Note name overlay** - Optional display of note names on score (with proper accidentals)
+- **Click navigation** - Click measures to jump to that position
 - **Auto-save** - Restores last loaded score on page reload
+- **Responsive** - Re-renders on window resize and panel toggle
 
 ## Tech Stack
 
@@ -245,9 +249,10 @@ type PracticeMode = 'left' | 'right' | 'both';
 
 interface AppConfig {
   practiceMode: PracticeMode;
-  zoomLevel: number;           // 0.8, 1.0, 1.5
+  zoomLevel: number;           // 0.8, 1.0, 1.25, 1.5, 1.75
   voiceCommandsMuted: boolean;
-  keyboardSize: number;        // 0 (hide), 100 (normal), 150 (large)
+  keyboardSize: number;        // 0 (hide), 100 (normal), 135 (large)
+  showNoteNames: boolean;      // Display note names on score
 }
 ```
 
@@ -258,14 +263,21 @@ interface AppConfig {
 - **Clear Score** - Remove current score, reset state
 - **MIDI Device** - Select connected MIDI input device
 - **Practice Mode** - Left hand / Right hand / Both hands
-- **Score Zoom** - Small (0.8x) / Normal (1.0x) / Large (1.5x)
-- **Keyboard Size** - Normal (100px) / Large (150px) / Hide
+- **Score Zoom** - X. Small (0.8x) / Small (1.0x) / Normal (1.25x) / Large (1.5x) / X. Large (1.75x)
+- **Keyboard Size** - Normal (100px) / Large (135px) / Hide
+- **Show Note Names** - Toggle note name overlay on score
 - **Pause/Resume** - Toggle practice session
 - **Back to Start** - Reset to beginning of score
+- **Panel Toggle** - Collapse/expand right panel (◀/▶ button)
 
 ### Keyboard Shortcuts
 - **Arrow Right** - Next note group
 - **Arrow Left** - Previous note group
+- **Ctrl+Arrow Right** - Next measure
+- **Ctrl+Arrow Left** - Start of current measure (or previous if already at start)
+
+### Mouse Controls
+- **Click measure** - Jump to first note in that measure
 
 ### Voice Commands
 Speech recognition enabled for hands-free navigation (Chrome only):
@@ -286,9 +298,10 @@ All settings stored in localStorage:
 
 **Config object** (`piano-play-along-config`):
 - `practiceMode` - Selected hand mode
-- `zoomLevel` - Score zoom level
+- `zoomLevel` - Score zoom level (default: 1.25)
 - `voiceCommandsMuted` - Voice command state
 - `keyboardSize` - Keyboard display size
+- `showNoteNames` - Note name overlay toggle (default: false)
 
 **Score data** (`piano-play-along-saved-score`):
 - Last loaded MusicXML content (auto-restores on page load)

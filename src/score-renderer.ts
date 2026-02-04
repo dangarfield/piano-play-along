@@ -4,9 +4,10 @@ import type { Note, NoteGroup } from './shared/types';
 export class ScoreRenderer {
   private osmd: OpenSheetMusicDisplay | null = null;
   private noteGroups: NoteGroup[] = [];
-  private currentCursorIndex: number = 0;
   private useFlats: boolean = false;
-  private zoomLevel: number = 1.0;
+  private zoomLevel: number = 1.25;
+  private showNoteNames: boolean = false;
+  private noteElementToGroupIndex: Map<Element, number> = new Map();
 
   async loadScore(file: File): Promise<void> {
     const container = document.getElementById('score-display');
@@ -17,7 +18,7 @@ export class ScoreRenderer {
 
     // Create new OSMD instance
     this.osmd = new OpenSheetMusicDisplay(container, {
-      autoResize: true,
+      autoResize: false,
       backend: 'svg',
       drawTitle: true,
       drawingParameters: 'default',
@@ -27,17 +28,13 @@ export class ScoreRenderer {
     this.osmd.setOptions({
       drawPartNames: true,
     });
-    
-    // Access drawing parameters to show note names
-    // @ts-ignore - accessing protected property
-    if (this.osmd.drawingParameters) {
-      // @ts-ignore - accessing protected property
-      this.osmd.drawingParameters.drawNoteNames = true;
-    }
 
     // Load the file - OSMD expects string content
     const text = await file.text();
     await this.osmd.load(text);
+    
+    // Parse key signature from OSMD after loading (before rendering)
+    this.parseKeySignatureFromOSMD();
     
     // Apply zoom before rendering
     this.osmd.zoom = this.zoomLevel;
@@ -46,12 +43,163 @@ export class ScoreRenderer {
     // Initialize cursor
     this.osmd.cursor.show();
     this.currentCursorIndex = 0;
-
-    // Parse key signature from OSMD after loading
-    this.parseKeySignatureFromOSMD();
+    
+    // Draw note names on top of notes (after rendering and cursor)
+    setTimeout(() => {
+      this.drawNoteNames();
+    }, 50);
 
     // Parse notes from the score
     this.parseNotes();
+    
+    // Setup click handlers after everything is ready
+    setTimeout(() => {
+      this.setupNoteClickHandlers();
+    }, 100);
+  }
+
+  private setupNoteClickHandlers(): void {
+    if (!this.osmd) return;
+    
+    const scoreContainer = document.getElementById('score-display');
+    if (!scoreContainer) return;
+    
+    // Add CSS for measure hover
+    const style = document.createElement('style');
+    style.textContent = '.vf-measure { cursor: pointer; }';
+    document.head.appendChild(style);
+    
+    scoreContainer.addEventListener('click', (e) => {
+      if (!this.osmd || !this.onNoteClickCallback) {
+        return;
+      }
+      
+      // Find the clicked measure element
+      const target = e.target as Element;
+      const measureElement = target.closest('.vf-measure');
+      
+      if (!measureElement) {
+        return;
+      }
+      
+      // Get measure ID (it's just a number like "12")
+      const measureId = measureElement.id;
+      if (!measureId) {
+        return;
+      }
+      
+      // Parse the measure number (ID is 1-indexed, measureIndex is 0-indexed)
+      const measureNumber = parseInt(measureId, 10) - 1;
+      if (isNaN(measureNumber) || measureNumber < 0) {
+        return;
+      }
+      
+      // Find first note group with this measure index
+      const targetIndex = this.noteGroups.findIndex(group => group.measureIndex === measureNumber);
+      
+      if (targetIndex !== -1) {
+        this.onNoteClickCallback(targetIndex);
+      }
+    });
+  }
+
+  private onNoteClickCallback: ((index: number) => void) | null = null;
+
+  onNoteClick(callback: (index: number) => void): void {
+    this.onNoteClickCallback = callback;
+  }
+
+  private drawNoteNames(): void {
+    if (!this.osmd || !this.showNoteNames) return;
+    
+    this.noteElementToGroupIndex.clear();
+    
+    try {
+      this.osmd.GraphicSheet.MeasureList.forEach((measureList: any) => {
+        measureList.forEach((measure: any) => {
+          measure.staffEntries.forEach((staffEntry: any) => {
+            staffEntry.graphicalVoiceEntries.forEach((graphicalVoiceEntry: any) => {
+              graphicalVoiceEntry.notes.forEach((graphicalNote: any) => {
+                const pitch = graphicalNote.sourceNote.Pitch;
+                if (pitch === undefined) return;
+                
+                // Get the actual MIDI note number
+                const midiNote = pitch.getHalfTone() + 12;
+                
+                // Convert MIDI to note name with proper accidentals
+                const noteNames = this.useFlats 
+                  ? ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B']
+                  : ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'];
+                const pitchName = noteNames[midiNote % 12];
+                
+                if (!pitchName) return;
+                
+                // Check if note is hollow (minim, breve, etc.) - these have longer durations
+                const noteLength = graphicalNote.sourceNote.Length.RealValue;
+                const isHollow = noteLength >= 0.5; // Half note or longer
+                const textColor = isHollow ? '#000000' : '#ffffff';
+                const fontSize = isHollow ? '8' : '9';
+                const accidentalSize = isHollow ? '6' : '7';
+                
+                // Get the note's position
+                const position = graphicalNote.PositionAndShape.AbsolutePosition;
+                const x = position.x * 10; // OSMD units to pixels
+                const y = position.y * 10 + 3;
+                
+                // Find the SVG container
+                const svgElement = document.querySelector('#score-display svg');
+                if (!svgElement) return;
+                
+                // Split note name into letter and accidental
+                const noteLetter = pitchName[0];
+                const accidental = pitchName.slice(1);
+                
+                if (accidental) {
+                  // Create text with tspan for superscript accidental
+                  const textElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                  textElement.setAttribute('x', x.toString());
+                  textElement.setAttribute('y', y.toString());
+                  textElement.setAttribute('font-weight', 'bold');
+                  textElement.setAttribute('fill', textColor);
+                  textElement.setAttribute('text-anchor', 'middle');
+                  textElement.setAttribute('pointer-events', 'none');
+                  
+                  // Main note letter
+                  const letterSpan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+                  letterSpan.setAttribute('font-size', fontSize);
+                  letterSpan.textContent = noteLetter;
+                  
+                  // Superscript accidental
+                  const accidentalSpan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+                  accidentalSpan.setAttribute('font-size', accidentalSize);
+                  accidentalSpan.setAttribute('dx', '-0.5');
+                  accidentalSpan.setAttribute('dy', '-2');
+                  accidentalSpan.textContent = accidental;
+                  
+                  textElement.appendChild(letterSpan);
+                  textElement.appendChild(accidentalSpan);
+                  svgElement.appendChild(textElement);
+                } else {
+                  // No accidental, just the letter
+                  const textElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                  textElement.setAttribute('x', x.toString());
+                  textElement.setAttribute('y', y.toString());
+                  textElement.setAttribute('font-size', fontSize);
+                  textElement.setAttribute('font-weight', 'bold');
+                  textElement.setAttribute('fill', textColor);
+                  textElement.setAttribute('text-anchor', 'middle');
+                  textElement.setAttribute('pointer-events', 'none');
+                  textElement.textContent = pitchName;
+                  svgElement.appendChild(textElement);
+                }
+              });
+            });
+          });
+        });
+      });
+    } catch (error) {
+      console.error('Error drawing note names:', error);
+    }
   }
 
   private parseKeySignatureFromOSMD(): void {
@@ -97,6 +245,25 @@ export class ScoreRenderer {
     let globalTimestamp = 0;
 
     try {
+      // First, build a map of graphical notes to their visual measure index
+      const graphicalNoteToMeasureIndex = new Map<any, number>();
+      
+      this.osmd.GraphicSheet.MeasureList.forEach((measureList: any, visualMeasureIndex: number) => {
+        measureList.forEach((measure: any) => {
+          measure.staffEntries.forEach((staffEntry: any) => {
+            staffEntry.graphicalVoiceEntries.forEach((graphicalVoiceEntry: any) => {
+              graphicalVoiceEntry.notes.forEach((graphicalNote: any) => {
+                const sourceNote = graphicalNote.sourceNote;
+                if (sourceNote) {
+                  graphicalNoteToMeasureIndex.set(sourceNote, visualMeasureIndex);
+                }
+              });
+            });
+          });
+        });
+      });
+      
+      // Now parse notes using the visual measure index
       for (let measureIndex = 0; measureIndex < sheet.SourceMeasures.length; measureIndex++) {
         const measure = sheet.SourceMeasures[measureIndex];
         const measureTimestamps = new Map<number, number>();
@@ -128,11 +295,14 @@ export class ScoreRenderer {
                 try {
                   const midiNote = note.Pitch.getHalfTone() + 12;
                   
+                  // Get visual measure index from graphical note mapping
+                  const visualMeasureIndex = graphicalNoteToMeasureIndex.get(note) ?? measureIndex;
+                  
                   const noteData: Note = {
                     pitch: midiNote,
                     hand,
                     duration: note.Length.RealValue,
-                    measureIndex,
+                    measureIndex: visualMeasureIndex,
                     timestamp,
                   };
 
@@ -174,8 +344,6 @@ export class ScoreRenderer {
   moveCursorToNoteGroup(index: number): void {
     if (!this.osmd || index < 0 || index >= this.noteGroups.length) return;
     
-    this.currentCursorIndex = index;
-    
     // Reset cursor to beginning
     this.osmd.cursor.reset();
     
@@ -188,7 +356,7 @@ export class ScoreRenderer {
     this.scrollCursorIntoView();
   }
 
-  private scrollCursorIntoView(): void {
+  scrollCursorIntoView(): void {
     if (!this.osmd) return;
     
     setTimeout(() => {
@@ -228,7 +396,6 @@ export class ScoreRenderer {
   resetCursor(): void {
     if (!this.osmd) return;
     this.osmd.cursor.reset();
-    this.currentCursorIndex = 0;
     
     // Scroll to top
     const scoreContainer = document.querySelector('.score-container');
@@ -240,6 +407,7 @@ export class ScoreRenderer {
   render(): void {
     if (this.osmd) {
       this.osmd.render();
+      this.drawNoteNames();
     }
   }
 
@@ -248,6 +416,15 @@ export class ScoreRenderer {
     if (this.osmd) {
       this.osmd.zoom = level;
       this.osmd.render();
+      this.drawNoteNames();
+    }
+  }
+
+  setShowNoteNames(show: boolean): void {
+    this.showNoteNames = show;
+    if (this.osmd) {
+      this.osmd.render();
+      this.drawNoteNames();
     }
   }
 
