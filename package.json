@@ -25,6 +25,7 @@
   "dependencies": {
     "jszip": "^3.10.1",
     "opensheetmusicdisplay": "^1.8.7",
-    "webmidi": "^3.1.11"
+    "tone": "15.1.22",
+    "webmidi": "3.1.14"
   }
 }

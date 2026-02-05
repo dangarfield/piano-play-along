@@ -8,6 +8,8 @@ export interface Note {
   duration: number;
   measureIndex: number;
   timestamp: number; // Position in score
+  velocity: number; // 0-1
+  isTied: boolean; // Is this note tied to the next
 }
 
 export interface NoteGroup {

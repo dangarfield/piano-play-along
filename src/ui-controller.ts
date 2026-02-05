@@ -55,7 +55,13 @@ export class UIController {
   showMessage(message: string): void {
     const messageEl = document.getElementById('loading-message');
     if (messageEl) {
-      messageEl.textContent = message;
+      // Only update the h2 text, not the entire content
+      const h2 = messageEl.querySelector('h2');
+      if (h2) {
+        h2.textContent = message;
+      } else {
+        messageEl.textContent = message;
+      }
       messageEl.style.display = 'block';
     }
   }

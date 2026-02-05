@@ -1,6 +1,7 @@
 import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import type { Note, NoteGroup } from './shared/types';
 import JSZip from 'jszip';
+import type { SoundHandler } from './sound-handler';
 
 export class ScoreRenderer {
   private osmd: OpenSheetMusicDisplay | null = null;
@@ -12,6 +13,12 @@ export class ScoreRenderer {
   private showNoteNames: boolean = false;
   private noteElementToGroupIndex: Map<Element, number> = new Map();
   private currentCursorPosition: number = 0;
+  private soundHandler: SoundHandler | null = null;
+  private noteDynamics: Map<string, number> = new Map(); // key: measure-staff-voice-timestamp-pitch
+
+  setSoundHandler(soundHandler: SoundHandler): void {
+    this.soundHandler = soundHandler;
+  }
 
   async loadScore(file: File): Promise<void> {
     const container = document.getElementById('score-display');
@@ -56,6 +63,9 @@ export class ScoreRenderer {
       // Uncompressed MusicXML
       xmlContent = await file.text();
     }
+    
+    // Parse MusicXML to extract dynamics before OSMD processes it
+    this.extractDynamicsFromMusicXML(xmlContent);
     
     await this.osmd.load(xmlContent);
     
@@ -149,6 +159,13 @@ export class ScoreRenderer {
       console.log('Mapped to group index:', groupIndex);
       
       if (groupIndex !== undefined) {
+        // Play the note group
+        const noteGroup = this.noteGroups[groupIndex];
+        if (noteGroup && this.soundHandler) {
+          this.soundHandler.playNoteGroup(noteGroup);
+        }
+        
+        // Jump to the note group
         this.onNoteClickCallback(groupIndex);
         return;
       }
@@ -205,32 +222,75 @@ export class ScoreRenderer {
                 // Check if note is hollow (minim, breve, etc.) - these have longer durations
                 const noteLength = graphicalNote.sourceNote.Length.RealValue;
                 const isHollow = noteLength >= 0.5; // Half note or longer
+                const isMinim = noteLength >= 0.5 && noteLength < 1.0; // Half note only
+                const circleRadius = isMinim ? 4 : 5;
                 const textColor = isHollow ? '#000000' : '#ffffff';
                 const fontSize = isHollow ? '8' : '9';
                 const accidentalSize = isHollow ? '6' : '7';
                 
-                // Get the note's position
-                const position = graphicalNote.PositionAndShape.AbsolutePosition;
-                const x = position.x * 10; // OSMD units to pixels
-                const y = position.y * 10 + 3;
+                // Find the specific notehead path element for this note
+                const noteElement = graphicalNote.getSVGGElement?.();
+                if (!noteElement) return;
                 
-                // Find the SVG container
-                const svgElement = document.querySelector('#score-display svg');
-                if (!svgElement) return;
+                // Find all notehead groups and paths
+                const noteheadGroups = noteElement.querySelectorAll('.vf-notehead');
+                if (noteheadGroups.length === 0) return;
+                
+                // For chords, we need to match by Y position
+                const position = graphicalNote.PositionAndShape.AbsolutePosition;
+                const noteY = position.y * 10;
+                
+                let targetNoteheadGroup: Element | null = null;
+                let minDistance = Infinity;
+                
+                // Find the notehead group closest to this note's Y position
+                noteheadGroups.forEach((group) => {
+                  const path = group.querySelector('path');
+                  if (path) {
+                    const bbox = (path as SVGGraphicsElement).getBBox();
+                    const distance = Math.abs(bbox.y + bbox.height / 2 - noteY);
+                    if (distance < minDistance) {
+                      minDistance = distance;
+                      targetNoteheadGroup = group;
+                    }
+                  }
+                });
+                
+                if (!targetNoteheadGroup) return;
+                
+                // Get the bounding box to center the text
+                const path = targetNoteheadGroup.querySelector('path');
+                if (!path) return;
+                const bbox = (path as SVGGraphicsElement).getBBox();
+                const centerX = bbox.x + bbox.width / 2;
+                const centerY = bbox.y + bbox.height / 2 + 3;
                 
                 // Split note name into letter and accidental
                 const noteLetter = pitchName[0];
                 const accidental = pitchName.slice(1);
                 
                 if (accidental) {
+                  // Add white circle background for hollow notes
+                  if (isHollow) {
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', centerX.toString());
+                    circle.setAttribute('cy', (centerY - 3).toString());
+                    circle.setAttribute('r', circleRadius.toString());
+                    circle.setAttribute('fill', 'white');
+                    circle.setAttribute('pointer-events', 'none');
+                    circle.setAttribute('class', 'note-name-bg');
+                    targetNoteheadGroup.appendChild(circle);
+                  }
+                  
                   // Create text with tspan for superscript accidental
                   const textElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                  textElement.setAttribute('x', x.toString());
-                  textElement.setAttribute('y', y.toString());
+                  textElement.setAttribute('x', centerX.toString());
+                  textElement.setAttribute('y', centerY.toString());
                   textElement.setAttribute('font-weight', 'bold');
                   textElement.setAttribute('fill', textColor);
                   textElement.setAttribute('text-anchor', 'middle');
                   textElement.setAttribute('pointer-events', 'none');
+                  textElement.setAttribute('class', 'note-name-text');
                   
                   // Main note letter
                   const letterSpan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
@@ -246,19 +306,30 @@ export class ScoreRenderer {
                   
                   textElement.appendChild(letterSpan);
                   textElement.appendChild(accidentalSpan);
-                  svgElement.appendChild(textElement);
+                  targetNoteheadGroup.appendChild(textElement);
                 } else {
+                  // Add white circle background for hollow notes
+                  if (isHollow) {
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', centerX.toString());
+                    circle.setAttribute('cy', (centerY - 3).toString());
+                    circle.setAttribute('r', circleRadius.toString());
+                    circle.setAttribute('fill', 'white');
+                    circle.setAttribute('pointer-events', 'none');
+                    targetNoteheadGroup.appendChild(circle);
+                  }
+                  
                   // No accidental, just the letter
                   const textElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                  textElement.setAttribute('x', x.toString());
-                  textElement.setAttribute('y', y.toString());
+                  textElement.setAttribute('x', centerX.toString());
+                  textElement.setAttribute('y', centerY.toString());
                   textElement.setAttribute('font-size', fontSize);
                   textElement.setAttribute('font-weight', 'bold');
                   textElement.setAttribute('fill', textColor);
                   textElement.setAttribute('text-anchor', 'middle');
                   textElement.setAttribute('pointer-events', 'none');
                   textElement.textContent = pitchName;
-                  svgElement.appendChild(textElement);
+                  targetNoteheadGroup.appendChild(textElement);
                 }
               });
             });
@@ -310,6 +381,101 @@ export class ScoreRenderer {
     const octave = Math.floor(midiNote / 12) - 1;
     const noteName = noteNames[midiNote % 12];
     return `${noteName}${octave}`;
+  }
+
+  private extractDynamicsFromMusicXML(xmlContent: string): void {
+    this.noteDynamics.clear();
+    
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
+      
+      // Get divisions to convert duration to beats
+      const firstDivisions = xmlDoc.querySelector('divisions');
+      const divisionsPerQuarter = firstDivisions ? parseInt(firstDivisions.textContent || '1') : 1;
+      
+      const parts = xmlDoc.querySelectorAll('part');
+      parts.forEach((part, partIndex) => {
+        const measures = part.querySelectorAll('measure');
+        measures.forEach((measure) => {
+          const measureNumber = measure.getAttribute('number') || '0';
+          const notes = measure.querySelectorAll('note');
+          
+          // Print all notes in measure 4
+          if (measureNumber === '4') {
+            console.log('=== MEASURE 4 NOTES FROM MUSICXML ===');
+            notes.forEach((noteEl, idx) => {
+              const isChord = noteEl.querySelector('chord') !== null;
+              const dynamics = noteEl.getAttribute('dynamics');
+              const pitch = noteEl.querySelector('pitch');
+              const staff = noteEl.querySelector('staff')?.textContent || '1';
+              const voice = noteEl.querySelector('voice')?.textContent || '1';
+              const duration = noteEl.querySelector('duration')?.textContent || '0';
+              
+              let pitchInfo = 'REST';
+              if (pitch) {
+                const step = pitch.querySelector('step')?.textContent || '';
+                const octave = pitch.querySelector('octave')?.textContent || '';
+                const alter = pitch.querySelector('alter')?.textContent || '0';
+                pitchInfo = `${step}${octave} (alter: ${alter})`;
+              }
+              
+              console.log(`Note ${idx}:`, {
+                noteEl,
+                isChord,
+                pitch: pitchInfo,
+                staff,
+                voice,
+                duration,
+                dynamics,
+              });
+            });
+            console.log('=====================================');
+          }
+          
+          // Track timestamp in beats (quarter notes)
+          let timestampInBeats = 0;
+          
+          notes.forEach((noteEl) => {
+            // Skip if it's a chord note (doesn't advance time)
+            const isChord = noteEl.querySelector('chord') !== null;
+            
+            const dynamics = noteEl.getAttribute('dynamics');
+            const pitch = noteEl.querySelector('pitch');
+            const staff = noteEl.querySelector('staff')?.textContent || '1';
+            const voice = noteEl.querySelector('voice')?.textContent || '1';
+            const duration = noteEl.querySelector('duration')?.textContent || '0';
+            const durationInBeats = parseInt(duration) / divisionsPerQuarter;
+            
+            if (pitch && dynamics) {
+              const step = pitch.querySelector('step')?.textContent || '';
+              const octave = pitch.querySelector('octave')?.textContent || '';
+              const alter = pitch.querySelector('alter')?.textContent || '0';
+              
+              // Convert to MIDI note
+              const stepToMidi: { [key: string]: number } = {
+                'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11
+              };
+              const midiNote = (parseInt(octave) + 1) * 12 + stepToMidi[step] + parseInt(alter);
+              
+              // Create unique key using beats as timestamp
+              const timestampKey = Math.round(timestampInBeats * 1000); // Use milliseconds precision
+              const key = `${measureNumber}-${staff}-${voice}-${timestampKey}-${midiNote}`;
+              const dynamicsValue = parseFloat(dynamics);
+              this.noteDynamics.set(key, dynamicsValue);
+            }
+            
+            if (!isChord) {
+              timestampInBeats += durationInBeats;
+            }
+          });
+        });
+      });
+      
+      console.log('Extracted dynamics for', this.noteDynamics.size, 'notes');
+    } catch (error) {
+      console.error('Failed to extract dynamics:', error);
+    }
   }
 
   private parseNotes(): void {
@@ -370,6 +536,19 @@ export class ScoreRenderer {
               for (const note of voiceEntry.Notes) {
                 if (!note?.Pitch) continue;
                 
+                // Print all notes in measure 4 (measureIndex 3)
+                if (measureIndex === 3) {
+                  console.log('=== OSMD NOTE IN MEASURE 4 ===');
+                  console.log('  Pitch:', note.Pitch?.getHalfTone?.() + 12);
+                  console.log('  SourceMeasure:', note.SourceMeasure?.MeasureNumber);
+                  console.log('  ParentStaffEntry:', note.ParentStaffEntry);
+                  console.log('  VoiceEntry:', voiceEntry);
+                  console.log('  VoiceEntry.Timestamp:', voiceEntry.Timestamp?.RealValue);
+                  console.log('  VoiceEntry.ParentVoice:', voiceEntry.ParentVoice);
+                  console.log('  localTimestamp:', localTimestamp);
+                  console.log('  staffIndex:', staffIndex);
+                }
+                
                 // This container has at least one note
                 hasNotes = true;
                 
@@ -388,12 +567,54 @@ export class ScoreRenderer {
                   // Get visual measure index from graphical note mapping
                   const visualMeasureIndex = graphicalNoteToMeasureIndex.get(note) ?? measureIndex;
                   
+                  // Get velocity from extracted dynamics
+                  let velocity = 0.7; // Default
+                  
+                  // Try to find dynamics using measure/staff/voice/timestamp/pitch
+                  const measureNum = (visualMeasureIndex + 1).toString();
+                  const staffNum = (staffIndex + 1).toString();
+                  const voiceNum = voiceEntry.ParentVoice?.VoiceId?.toString() || '1';
+                  
+                  // Convert localTimestamp (in beats) to milliseconds precision
+                  const timestampKey = Math.round(localTimestamp * 1000);
+                  
+                  // Log for first few notes in measure 5
+                  if (visualMeasureIndex === 4 && globalTimestamp < 30) {
+                    console.log('Trying to match note:', {
+                      measureNum,
+                      staffNum,
+                      voiceNum,
+                      localTimestamp,
+                      timestampKey,
+                      midiNote,
+                      sampleKey: `${measureNum}-${staffNum}-${voiceNum}-${timestampKey}-${midiNote}`
+                    });
+                  }
+                  
+                  // Try a small range around the timestamp
+                  for (let offset = -2; offset <= 2; offset++) {
+                    const key = `${measureNum}-${staffNum}-${voiceNum}-${timestampKey + offset}-${midiNote}`;
+                    const dynamicsValue = this.noteDynamics.get(key);
+                    if (dynamicsValue !== undefined) {
+                      velocity = Math.max(0.1, Math.min(1.0, dynamicsValue / 127));
+                      if (visualMeasureIndex === 4 && globalTimestamp < 30) {
+                        console.log('MATCHED:', key, 'dynamics:', dynamicsValue, 'velocity:', velocity);
+                      }
+                      break;
+                    }
+                  }
+                  
+                  // Check for ties
+                  const isTied = !!note.NoteTie;
+                  
                   const noteData: Note = {
                     pitch: midiNote,
                     hand,
                     duration: note.Length.RealValue,
                     measureIndex: visualMeasureIndex,
                     timestamp,
+                    velocity,
+                    isTied,
                   };
 
                   if (!notesByTimestamp.has(timestamp)) {
@@ -455,11 +676,22 @@ export class ScoreRenderer {
             pitch: n.pitch,
             hand: n.hand,
             duration: n.duration,
-            noteName: this.midiToNoteName(n.pitch)
+            noteName: this.midiToNoteName(n.pitch),
+            velocity: n.velocity,
+            isTied: n.isTied
           }))
         );
       });
       console.log('===================');
+      
+      // Also log what dynamics were extracted
+      console.log('Sample dynamics map entries (measures 1-7):');
+      for (const [key, value] of this.noteDynamics.entries()) {
+        const measureNum = parseInt(key.split('-')[0]);
+        if (measureNum <= 7) {
+          console.log(`  ${key}: ${value}`);
+        }
+      }
     } catch (error) {
       console.error('Error parsing notes:', error);
       throw error;

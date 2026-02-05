@@ -51,6 +51,54 @@ body {
   transform: translate(-50%, -50%);
   color: #999;
   font-size: 1.2rem;
+  max-width: 600px;
+  width: 90%;
+}
+
+.score-library {
+  margin-top: 2rem;
+  text-align: left;
+}
+
+.score-library h3 {
+  font-size: 1rem;
+  color: #666;
+  margin-bottom: 1rem;
+}
+
+.folder {
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.folder-name {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.folder-contents {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.score-item {
+  padding: 0.5rem 0.75rem;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.score-item:hover {
+  background: #4a9eff;
+  color: white;
 }
 
 .practice-panel {

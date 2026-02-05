@@ -2,6 +2,7 @@ import { MidiHandler } from './midi-handler';
 import { ScoreRenderer } from './score-renderer';
 import { PracticeEngine } from './practice-engine';
 import { UIController } from './ui-controller';
+import { SoundHandler } from './sound-handler';
 import type { PracticeMode } from './shared/types';
 import { SimpleKeyboard } from './simple-keyboard';
 
@@ -18,6 +19,7 @@ class App {
   private scoreRenderer: ScoreRenderer;
   private practiceEngine: PracticeEngine;
   private uiController: UIController;
+  private soundHandler: SoundHandler;
   private keyboard!: SimpleKeyboard;
   private readonly CONFIG_KEY = 'piano-play-along-config';
   private readonly SCORE_KEY = 'piano-play-along-saved-score';
@@ -27,6 +29,7 @@ class App {
     this.scoreRenderer = new ScoreRenderer();
     this.practiceEngine = new PracticeEngine();
     this.uiController = new UIController();
+    this.soundHandler = new SoundHandler();
 
     this.initialize();
   }
@@ -71,6 +74,10 @@ class App {
     this.initializeKeyboard();
     this.setupVoiceCommands();
     await this.initializeMidi();
+    await this.initializeSound();
+    
+    // Setup score library click handlers
+    this.setupScoreLibrary();
     
     // Try to load saved score
     await this.loadSavedScore();
@@ -158,6 +165,16 @@ class App {
     }
   }
 
+  private async initializeSound(): Promise<void> {
+    try {
+      await this.soundHandler.initialize();
+      this.scoreRenderer.setSoundHandler(this.soundHandler);
+      console.log('Sound initialized');
+    } catch (error) {
+      console.error('Failed to initialize sound:', error);
+    }
+  }
+
   private setupEventListeners(): void {
     // Panel toggle
     const togglePanelBtn = document.getElementById('toggle-panel-btn');
@@ -195,6 +212,11 @@ class App {
             const targetIndex = state.score.findIndex(group => group.measureIndex === nextMeasure);
             if (targetIndex !== -1) {
               this.practiceEngine.jumpToNoteGroup(targetIndex);
+              // Play the note group
+              const noteGroup = state.score[targetIndex];
+              if (noteGroup) {
+                this.soundHandler.playNoteGroup(noteGroup);
+              }
             }
           }
         } else {
@@ -202,6 +224,11 @@ class App {
           const nextIndex = state.currentNoteGroupIndex + 1;
           if (nextIndex < state.score.length) {
             this.practiceEngine.jumpToNoteGroup(nextIndex);
+            // Play the note group
+            const noteGroup = state.score[nextIndex];
+            if (noteGroup) {
+              this.soundHandler.playNoteGroup(noteGroup);
+            }
           }
         }
       } else if (e.key === 'ArrowLeft') {
@@ -222,11 +249,21 @@ class App {
                 const targetIndex = state.score.findIndex(group => group.measureIndex === prevMeasure);
                 if (targetIndex !== -1) {
                   this.practiceEngine.jumpToNoteGroup(targetIndex);
+                  // Play the note group
+                  const noteGroup = state.score[targetIndex];
+                  if (noteGroup) {
+                    this.soundHandler.playNoteGroup(noteGroup);
+                  }
                 }
               }
             } else {
               // Go to start of current measure
               this.practiceEngine.jumpToNoteGroup(currentMeasureStart);
+              // Play the note group
+              const noteGroup = state.score[currentMeasureStart];
+              if (noteGroup) {
+                this.soundHandler.playNoteGroup(noteGroup);
+              }
             }
           }
         } else {
@@ -234,6 +271,11 @@ class App {
           const prevIndex = state.currentNoteGroupIndex - 1;
           if (prevIndex >= 0) {
             this.practiceEngine.jumpToNoteGroup(prevIndex);
+            // Play the note group
+            const noteGroup = state.score[prevIndex];
+            if (noteGroup) {
+              this.soundHandler.playNoteGroup(noteGroup);
+            }
           }
         }
       }
@@ -380,6 +422,10 @@ class App {
     try {
       this.uiController.showMessage('Loading score...');
       
+      // Hide score library
+      const loadingMessage = document.getElementById('loading-message');
+      if (loadingMessage) loadingMessage.style.display = 'none';
+      
       // For .mxl files, we need to store the binary data
       let content: string;
       if (file.name.toLowerCase().endsWith('.mxl')) {
@@ -510,7 +556,43 @@ class App {
     const clearBtn = document.getElementById('clear-file-btn');
     if (clearBtn) clearBtn.style.display = 'none';
     
+    // Show score library
+    const loadingMessage = document.getElementById('loading-message');
+    if (loadingMessage) loadingMessage.style.display = 'block';
+    
     console.log('Score cleared');
+  }
+
+  private setupScoreLibrary(): void {
+    const scoreItems = document.querySelectorAll('.score-item');
+    scoreItems.forEach(item => {
+      item.addEventListener('click', async () => {
+        const path = item.getAttribute('data-path');
+        if (path) {
+          await this.loadScoreFromUrl(path);
+        }
+      });
+    });
+  }
+
+  private async loadScoreFromUrl(url: string): Promise<void> {
+    try {
+      this.uiController.showMessage('Loading score...');
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to load score: ${response.statusText}`);
+      }
+      
+      const blob = await response.blob();
+      const filename = url.split('/').pop() || 'score.mxl';
+      const file = new File([blob], filename, { type: blob.type });
+      
+      await this.loadScore(file);
+    } catch (error) {
+      console.error('Failed to load score from URL:', error);
+      this.uiController.showMessage('Failed to load score. Please try another.');
+    }
   }
 
   private setupVoiceCommands(): void {

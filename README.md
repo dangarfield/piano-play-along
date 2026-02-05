@@ -1,5 +1,7 @@
 # Music Practice App
 
+**Live Demo:** https://dangarfield.github.io/piano-play-along/
+
 Browser-based piano practice app with MIDI keyboard support and real-time sheet music feedback.
 
 ## Quick Start
@@ -91,7 +93,7 @@ MIDI device management using WebMidi.js.
 OpenSheetMusicDisplay wrapper for MusicXML parsing and rendering.
 
 **Key methods:**
-- `loadScore(file)` - Load MusicXML, parse notes, render score
+- `loadScore(file)` - Upload MusicXML, parse notes, render score
 - `getNoteGroups()` - Extract note groups with timing/pitch/hand
 - `moveCursorToNoteGroup(index)` - Move cursor, auto-scroll to position
 - `getUseFlats()` - Get key signature preference (flats vs sharps)
@@ -259,7 +261,7 @@ interface AppConfig {
 ## User Controls
 
 ### UI Controls
-- **Load MusicXML** - Open file picker to load score
+- **Upload MusicXML** - Open file picker to load score
 - **Clear Score** - Remove current score, reset state
 - **MIDI Device** - Select connected MIDI input device
 - **Practice Mode** - Left hand / Right hand / Both hands
