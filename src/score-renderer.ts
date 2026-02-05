@@ -244,7 +244,7 @@ export class ScoreRenderer {
                 let minDistance = Infinity;
                 
                 // Find the notehead group closest to this note's Y position
-                noteheadGroups.forEach((group) => {
+                noteheadGroups.forEach((group: Element) => {
                   const path = group.querySelector('path');
                   if (path) {
                     const bbox = (path as SVGGraphicsElement).getBBox();
@@ -259,7 +259,7 @@ export class ScoreRenderer {
                 if (!targetNoteheadGroup) return;
                 
                 // Get the bounding box to center the text
-                const path = targetNoteheadGroup.querySelector('path');
+                const path = (targetNoteheadGroup as Element).querySelector('path');
                 if (!path) return;
                 const bbox = (path as SVGGraphicsElement).getBBox();
                 const centerX = bbox.x + bbox.width / 2;
@@ -279,7 +279,7 @@ export class ScoreRenderer {
                     circle.setAttribute('fill', 'white');
                     circle.setAttribute('pointer-events', 'none');
                     circle.setAttribute('class', 'note-name-bg');
-                    targetNoteheadGroup.appendChild(circle);
+                    (targetNoteheadGroup as Element).appendChild(circle);
                   }
                   
                   // Create text with tspan for superscript accidental
@@ -306,7 +306,7 @@ export class ScoreRenderer {
                   
                   textElement.appendChild(letterSpan);
                   textElement.appendChild(accidentalSpan);
-                  targetNoteheadGroup.appendChild(textElement);
+                  (targetNoteheadGroup as Element).appendChild(textElement);
                 } else {
                   // Add white circle background for hollow notes
                   if (isHollow) {
@@ -316,7 +316,7 @@ export class ScoreRenderer {
                     circle.setAttribute('r', circleRadius.toString());
                     circle.setAttribute('fill', 'white');
                     circle.setAttribute('pointer-events', 'none');
-                    targetNoteheadGroup.appendChild(circle);
+                    (targetNoteheadGroup as Element).appendChild(circle);
                   }
                   
                   // No accidental, just the letter
@@ -329,7 +329,7 @@ export class ScoreRenderer {
                   textElement.setAttribute('text-anchor', 'middle');
                   textElement.setAttribute('pointer-events', 'none');
                   textElement.textContent = pitchName;
-                  targetNoteheadGroup.appendChild(textElement);
+                  (targetNoteheadGroup as Element).appendChild(textElement);
                 }
               });
             });
