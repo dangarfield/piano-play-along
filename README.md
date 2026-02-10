@@ -16,7 +16,11 @@ Open in Chrome, Edge, or Opera (Web MIDI API required). Connect MIDI keyboard, l
 ## Features
 
 - **Real-time MIDI tracking** - Automatically advances when correct notes are played
+- **Automatic playback** - Play button with accurate timing, tempo, and tied note handling
+- **Tempo extraction** - Reads tempo from MusicXML (sound elements, metronome markings)
+- **Tempo control** - Adjustable playback speed (0.25x - 1.5x)
 - **Practice modes** - Left hand, right hand, or both hands
+- **Auto-play accompaniment** - Non-practicing hand plays automatically with correct timing
 - **Voice commands** - Hands-free navigation (measure jumping, mode switching)
 - **Auto-scroll** - Score follows cursor at top 1/4 of viewport
 - **Key signature detection** - Automatically displays flats or sharps based on score
@@ -33,6 +37,7 @@ Open in Chrome, Edge, or Opera (Web MIDI API required). Connect MIDI keyboard, l
 - **TypeScript + Vite** - Build tooling
 - **OpenSheetMusicDisplay** - MusicXML rendering to SVG
 - **WebMidi.js** - MIDI device handling
+- **Tone.js** - Audio synthesis and playback
 - **Web Speech API** - Voice command recognition
 
 ## Architecture
@@ -43,6 +48,8 @@ src/
 ├── midi-handler.ts           # MIDI device connection & message parsing
 ├── score-renderer.ts         # OSMD wrapper, MusicXML parsing
 ├── practice-engine.ts        # Note matching & progression logic
+├── playback-engine.ts        # Automatic playback with timing
+├── sound-handler.ts          # Tone.js audio synthesis
 ├── ui-controller.ts          # UI state updates
 ├── simple-keyboard.ts        # Piano keyboard visualization
 └── shared/
@@ -135,6 +142,8 @@ Core practice logic. Compares played notes against expected notes, manages progr
 - `setPracticeMode(mode)` - Filter notes by hand (left/right/both)
 - `jumpToNoteGroup(index)` - Navigate to specific position
 - `skipEmptyGroups()` - Auto-skip groups with no notes for selected hand
+- `autoPlayOtherHand()` - Play non-practicing hand's notes automatically
+- `scheduleNextAutoPlay()` - Schedule next auto-play with proper timing
 - `start()` - Begin practice session
 - `pause()` - Pause practice session
 - `reset()` - Return to beginning
@@ -143,8 +152,47 @@ Core practice logic. Compares played notes against expected notes, manages progr
 1. Filter expected notes by practice mode
 2. Check if all expected notes are currently pressed
 3. If match, advance to next note group
-4. Skip groups with no notes for active hand(s)
-5. Emit progress event to update UI
+4. Auto-play other hand's notes with callback
+5. Skip groups with no notes for active hand(s)
+6. Handle tied note continuations automatically
+7. Emit progress event to update UI
+
+### playback-engine.ts
+Automatic playback with accurate timing and tied note handling.
+
+**Key methods:**
+- `loadScore(noteGroups)` - Initialize with parsed score
+- `play(startIndex)` - Start playback from position
+- `stop()` - Stop playback
+- `setTempo(bpm)` - Set base tempo
+- `setTempoMultiplier(multiplier)` - Adjust playback speed (0.25x - 1.5x)
+- `calculateTiedNoteDurations()` - Pre-calculate total durations for tied notes
+- `playNextGroup()` - Schedule and play next note group
+
+**Timing calculation:**
+- Uses absolute time positions from OSMD (`localTimestamp`)
+- Calculates delays: `(nextTime - currentTime) * msPerQuarterNote * 4 / multiplier`
+- Handles tempo changes per measure
+- Properly spaces triplets, rests, and multiple voices
+
+**Tied note handling:**
+- Pre-calculates total duration for tied note chains
+- Marks continuation notes with `isTieContinuation` flag
+- First note plays with full combined duration
+- Continuation notes are skipped during playback
+
+### sound-handler.ts
+Audio synthesis using Tone.js.
+
+**Key methods:**
+- `initialize()` - Set up Tone.js synthesizer
+- `playNote(pitch, duration, velocity)` - Play single note
+- `stopAllNotes()` - Stop all currently playing notes
+
+**Audio context:**
+- Requires user interaction to enable (browser security)
+- Shows "Click to Enable Audio" button when loading from localStorage
+- Manual score selection click enables audio automatically
 
 ### ui-controller.ts
 Updates UI elements based on practice state.
@@ -268,7 +316,8 @@ interface AppConfig {
 - **Score Zoom** - X. Small (0.8x) / Small (1.0x) / Normal (1.25x) / Large (1.5x) / X. Large (1.75x)
 - **Keyboard Size** - Normal (100px) / Large (135px) / Hide
 - **Show Note Names** - Toggle note name overlay on score
-- **Pause/Resume** - Toggle practice session
+- **Play/Stop** - Start/stop automatic playback
+- **Tempo Slider** - Adjust playback speed (0.25x - 1.5x, default 1.0x)
 - **Back to Start** - Reset to beginning of score
 - **Panel Toggle** - Collapse/expand right panel (◀/▶ button)
 
@@ -304,6 +353,9 @@ All settings stored in localStorage:
 - `voiceCommandsMuted` - Voice command state
 - `keyboardSize` - Keyboard display size
 - `showNoteNames` - Note name overlay toggle (default: false)
+
+**Tempo multiplier** (`tempoMultiplier`):
+- Playback speed adjustment (0.25x - 1.5x, default: 1.0x)
 
 **Score data** (`piano-play-along-saved-score`):
 - Last loaded MusicXML content (auto-restores on page load)
@@ -341,11 +393,10 @@ All settings stored in localStorage:
 
 ### Known Limitations
 - Requires Chromium-based browser (Web MIDI API)
-- No timing enforcement (only note correctness)
 - Hand assignment based on staff only (treble=right, bass=left)
-- No audio playback
-- No recording/playback of practice sessions
+- No recording of practice sessions
 - Voice commands only work in Chrome
+- MIDI input disabled during automatic playback
 
 ## Browser Compatibility
 
@@ -360,12 +411,11 @@ All settings stored in localStorage:
 
 ## Future Enhancements
 
-- Audio playback with synthesizer
 - Metronome/click track
-- Recording and playback
+- Recording of practice sessions
 - Progress tracking and statistics
 - Loop sections
-- Tempo adjustment
 - Transpose functionality
 - Timing enforcement mode
 - Multiple voice support (beyond treble/bass)
+- Keyboard click to emulate MIDI input
