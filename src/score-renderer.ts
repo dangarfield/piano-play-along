@@ -208,7 +208,9 @@ export class ScoreRenderer {
                 if (pitch === undefined) return;
                 
                 // Skip rests and notes that shouldn't be printed (same as parseNotes)
+                // @ts-ignore - accessing private properties
                 if (sourceNote.isRestFlag === true) return;
+                // @ts-ignore - accessing private properties
                 if (sourceNote.printObject === false) return;
                 
                 // Get the actual MIDI note number
@@ -509,7 +511,9 @@ export class ScoreRenderer {
               for (const note of voiceEntry.Notes) {
                 // Skip rests and notes that shouldn't be printed
                 if (!note?.Pitch) continue;
+                // @ts-ignore - accessing private properties
                 if (note.isRestFlag === true) continue;
+                // @ts-ignore - accessing private properties
                 if (note.printObject === false) continue;
                 
                 // This container has at least one note
