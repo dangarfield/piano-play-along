@@ -98,12 +98,13 @@ export class ScoreRenderer {
     // Build a map from SVG elements to note group indices using source notes
     const svgElementToGroupIndex = new Map<Element, number>();
     
-    console.log('Setting up note click handlers, sourceNoteToGroupIndex size:', this.sourceNoteToGroupIndex.size);
-    
     this.osmd.GraphicSheet.MeasureList.forEach((measureList: any) => {
       measureList.forEach((measure: any) => {
+        if (!measure?.staffEntries) return;
         measure.staffEntries.forEach((staffEntry: any) => {
+          if (!staffEntry?.graphicalVoiceEntries) return;
           staffEntry.graphicalVoiceEntries.forEach((graphicalVoiceEntry: any) => {
+            if (!graphicalVoiceEntry?.notes) return;
             graphicalVoiceEntry.notes.forEach((graphicalNote: any) => {
               const sourceNote = graphicalNote.sourceNote;
               if (!sourceNote) return;
@@ -129,8 +130,6 @@ export class ScoreRenderer {
       });
     });
     
-    console.log('SVG elements mapped:', svgElementToGroupIndex.size);
-    
     // Add CSS for note hover
     const style = document.createElement('style');
     style.textContent = '.vf-notehead, .vf-stem, .vf-flag { cursor: pointer; }';
@@ -142,7 +141,6 @@ export class ScoreRenderer {
       }
       
       const target = e.target as Element;
-      console.log('Clicked element:', target.className);
       
       // Check if the clicked element itself is mapped
       let groupIndex = svgElementToGroupIndex.get(target);
@@ -155,8 +153,6 @@ export class ScoreRenderer {
           parent = parent.parentElement;
         }
       }
-      
-      console.log('Mapped to group index:', groupIndex);
       
       if (groupIndex !== undefined) {
         // Play the note group
@@ -173,7 +169,6 @@ export class ScoreRenderer {
       // Fallback: click on measure goes to first note in measure
       const measureElement = target.closest('.vf-measure');
       if (measureElement) {
-        console.log('Fallback to measure click');
         const measureId = measureElement.id;
         if (measureId) {
           const measureNumber = parseInt(measureId, 10) - 1;
@@ -202,11 +197,19 @@ export class ScoreRenderer {
     try {
       this.osmd.GraphicSheet.MeasureList.forEach((measureList: any) => {
         measureList.forEach((measure: any) => {
+          if (!measure?.staffEntries) return;
           measure.staffEntries.forEach((staffEntry: any) => {
+            if (!staffEntry?.graphicalVoiceEntries) return;
             staffEntry.graphicalVoiceEntries.forEach((graphicalVoiceEntry: any) => {
+              if (!graphicalVoiceEntry?.notes) return;
               graphicalVoiceEntry.notes.forEach((graphicalNote: any) => {
-                const pitch = graphicalNote.sourceNote.Pitch;
+                const sourceNote = graphicalNote.sourceNote;
+                const pitch = sourceNote?.Pitch;
                 if (pitch === undefined) return;
+                
+                // Skip rests and notes that shouldn't be printed (same as parseNotes)
+                if (sourceNote.isRestFlag === true) return;
+                if (sourceNote.printObject === false) return;
                 
                 // Get the actual MIDI note number
                 const midiNote = pitch.getHalfTone() + 12;
@@ -401,38 +404,6 @@ export class ScoreRenderer {
           const measureNumber = measure.getAttribute('number') || '0';
           const notes = measure.querySelectorAll('note');
           
-          // Print all notes in measure 4
-          if (measureNumber === '4') {
-            console.log('=== MEASURE 4 NOTES FROM MUSICXML ===');
-            notes.forEach((noteEl, idx) => {
-              const isChord = noteEl.querySelector('chord') !== null;
-              const dynamics = noteEl.getAttribute('dynamics');
-              const pitch = noteEl.querySelector('pitch');
-              const staff = noteEl.querySelector('staff')?.textContent || '1';
-              const voice = noteEl.querySelector('voice')?.textContent || '1';
-              const duration = noteEl.querySelector('duration')?.textContent || '0';
-              
-              let pitchInfo = 'REST';
-              if (pitch) {
-                const step = pitch.querySelector('step')?.textContent || '';
-                const octave = pitch.querySelector('octave')?.textContent || '';
-                const alter = pitch.querySelector('alter')?.textContent || '0';
-                pitchInfo = `${step}${octave} (alter: ${alter})`;
-              }
-              
-              console.log(`Note ${idx}:`, {
-                noteEl,
-                isChord,
-                pitch: pitchInfo,
-                staff,
-                voice,
-                duration,
-                dynamics,
-              });
-            });
-            console.log('=====================================');
-          }
-          
           // Track timestamp in beats (quarter notes)
           let timestampInBeats = 0;
           
@@ -472,7 +443,6 @@ export class ScoreRenderer {
         });
       });
       
-      console.log('Extracted dynamics for', this.noteDynamics.size, 'notes');
     } catch (error) {
       console.error('Failed to extract dynamics:', error);
     }
@@ -498,8 +468,11 @@ export class ScoreRenderer {
       
       this.osmd.GraphicSheet.MeasureList.forEach((measureList: any, visualMeasureIndex: number) => {
         measureList.forEach((measure: any) => {
+          if (!measure?.staffEntries) return;
           measure.staffEntries.forEach((staffEntry: any) => {
+            if (!staffEntry?.graphicalVoiceEntries) return;
             staffEntry.graphicalVoiceEntries.forEach((graphicalVoiceEntry: any) => {
+              if (!graphicalVoiceEntry?.notes) return;
               graphicalVoiceEntry.notes.forEach((graphicalNote: any) => {
                 const sourceNote = graphicalNote.sourceNote;
                 if (sourceNote) {
@@ -534,20 +507,10 @@ export class ScoreRenderer {
               if (!voiceEntry?.Notes) continue;
               
               for (const note of voiceEntry.Notes) {
+                // Skip rests and notes that shouldn't be printed
                 if (!note?.Pitch) continue;
-                
-                // Print all notes in measure 4 (measureIndex 3)
-                if (measureIndex === 3) {
-                  console.log('=== OSMD NOTE IN MEASURE 4 ===');
-                  console.log('  Pitch:', note.Pitch?.getHalfTone?.() + 12);
-                  console.log('  SourceMeasure:', note.SourceMeasure?.MeasureNumber);
-                  console.log('  ParentStaffEntry:', note.ParentStaffEntry);
-                  console.log('  VoiceEntry:', voiceEntry);
-                  console.log('  VoiceEntry.Timestamp:', voiceEntry.Timestamp?.RealValue);
-                  console.log('  VoiceEntry.ParentVoice:', voiceEntry.ParentVoice);
-                  console.log('  localTimestamp:', localTimestamp);
-                  console.log('  staffIndex:', staffIndex);
-                }
+                if (note.isRestFlag === true) continue;
+                if (note.printObject === false) continue;
                 
                 // This container has at least one note
                 hasNotes = true;
@@ -578,28 +541,12 @@ export class ScoreRenderer {
                   // Convert localTimestamp (in beats) to milliseconds precision
                   const timestampKey = Math.round(localTimestamp * 1000);
                   
-                  // Log for first few notes in measure 5
-                  if (visualMeasureIndex === 4 && globalTimestamp < 30) {
-                    console.log('Trying to match note:', {
-                      measureNum,
-                      staffNum,
-                      voiceNum,
-                      localTimestamp,
-                      timestampKey,
-                      midiNote,
-                      sampleKey: `${measureNum}-${staffNum}-${voiceNum}-${timestampKey}-${midiNote}`
-                    });
-                  }
-                  
                   // Try a small range around the timestamp
                   for (let offset = -2; offset <= 2; offset++) {
                     const key = `${measureNum}-${staffNum}-${voiceNum}-${timestampKey + offset}-${midiNote}`;
                     const dynamicsValue = this.noteDynamics.get(key);
                     if (dynamicsValue !== undefined) {
                       velocity = Math.max(0.1, Math.min(1.0, dynamicsValue / 127));
-                      if (visualMeasureIndex === 4 && globalTimestamp < 30) {
-                        console.log('MATCHED:', key, 'dynamics:', dynamicsValue, 'velocity:', velocity);
-                      }
                       break;
                     }
                   }
@@ -667,31 +614,6 @@ export class ScoreRenderer {
         }
       }
       
-      // Log bars 5 and 6 (measureIndex 4 and 5)
-      console.log('=== BARS 5 AND 6 ===');
-      const bars5and6 = this.noteGroups.filter(g => g.measureIndex === 4 || g.measureIndex === 5);
-      bars5and6.forEach(group => {
-        console.log(`Bar ${group.measureIndex + 1}, Timestamp ${group.timestamp}:`, 
-          group.notes.map(n => ({
-            pitch: n.pitch,
-            hand: n.hand,
-            duration: n.duration,
-            noteName: this.midiToNoteName(n.pitch),
-            velocity: n.velocity,
-            isTied: n.isTied
-          }))
-        );
-      });
-      console.log('===================');
-      
-      // Also log what dynamics were extracted
-      console.log('Sample dynamics map entries (measures 1-7):');
-      for (const [key, value] of this.noteDynamics.entries()) {
-        const measureNum = parseInt(key.split('-')[0]);
-        if (measureNum <= 7) {
-          console.log(`  ${key}: ${value}`);
-        }
-      }
     } catch (error) {
       console.error('Error parsing notes:', error);
       throw error;
@@ -758,14 +680,12 @@ export class ScoreRenderer {
     // Find the cursor image element
     const cursorImg = document.querySelector('[id^="cursorImg-"]') as HTMLElement;
     if (!cursorImg) {
-      console.log('Cursor image not found');
       return;
     }
     
     // Get the top position from the style attribute
     const topStyle = cursorImg.style.top;
     if (!topStyle) {
-      console.log('Cursor top position not found');
       return;
     }
     
