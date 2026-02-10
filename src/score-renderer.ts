@@ -6,6 +6,8 @@ import type { SoundHandler } from './sound-handler';
 export class ScoreRenderer {
   private osmd: OpenSheetMusicDisplay | null = null;
   private noteGroups: NoteGroup[] = [];
+  private tempo: number = 120; // Default fallback
+  private tempoChanges: Map<number, number> = new Map(); // measureIndex -> tempo
   private noteGroupToCursorPosition: Map<number, number> = new Map();
   private sourceNoteToGroupIndex: Map<any, number> = new Map();
   private useFlats: boolean = false;
@@ -66,6 +68,9 @@ export class ScoreRenderer {
     
     // Parse MusicXML to extract dynamics before OSMD processes it
     this.extractDynamicsFromMusicXML(xmlContent);
+    
+    // Extract tempo from MusicXML
+    this.extractTempoFromMusicXML(xmlContent);
     
     await this.osmd.load(xmlContent);
     
@@ -388,6 +393,95 @@ export class ScoreRenderer {
     return `${noteName}${octave}`;
   }
 
+  private extractTempoFromMusicXML(xmlContent: string): void {
+    this.tempoChanges.clear();
+    
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
+      
+      const parts = xmlDoc.querySelectorAll('part');
+      if (parts.length === 0) return;
+      
+      // Only process first part to avoid duplicates
+      const part = parts[0];
+      const measures = part.querySelectorAll('measure');
+      
+      measures.forEach((measure, index) => {
+        // Look for tempo in sound element
+        const soundElement = measure.querySelector('sound[tempo]');
+        if (soundElement) {
+          const tempoAttr = soundElement.getAttribute('tempo');
+          if (tempoAttr) {
+            const tempo = parseFloat(tempoAttr);
+            this.tempoChanges.set(index, tempo);
+            console.log(`Tempo change at measure ${index + 1}: ${tempo} BPM`);
+          }
+        }
+        
+        // Look for metronome marking
+        const metronome = measure.querySelector('metronome');
+        if (metronome) {
+          const beatUnit = metronome.querySelector('beat-unit')?.textContent;
+          const perMinute = metronome.querySelector('per-minute')?.textContent;
+          
+          if (beatUnit && perMinute) {
+            let tempo = parseFloat(perMinute);
+            
+            // Adjust for beat unit (if not quarter note)
+            if (beatUnit === 'half') {
+              tempo = tempo * 2;
+            } else if (beatUnit === 'eighth') {
+              tempo = tempo / 2;
+            } else if (beatUnit === 'whole') {
+              tempo = tempo * 4;
+            }
+            
+            this.tempoChanges.set(index, tempo);
+            console.log(`Tempo change at measure ${index + 1}: ${tempo} BPM (from metronome)`);
+          }
+        }
+        
+        // Look for direction with tempo words
+        const directions = measure.querySelectorAll('direction');
+        Array.from(directions).forEach((direction) => {
+          const words = direction.querySelector('words')?.textContent?.toLowerCase();
+          if (words) {
+            let tempo = 0;
+            if (words.includes('grave')) tempo = 40;
+            else if (words.includes('largo')) tempo = 50;
+            else if (words.includes('lento')) tempo = 60;
+            else if (words.includes('adagio')) tempo = 70;
+            else if (words.includes('andante')) tempo = 90;
+            else if (words.includes('moderato')) tempo = 110;
+            else if (words.includes('allegretto')) tempo = 115;
+            else if (words.includes('allegro')) tempo = 140;
+            else if (words.includes('vivace')) tempo = 160;
+            else if (words.includes('presto')) tempo = 180;
+            else if (words.includes('prestissimo')) tempo = 200;
+            
+            if (tempo > 0) {
+              this.tempoChanges.set(index, tempo);
+              console.log(`Tempo change at measure ${index + 1}: ${tempo} BPM (from ${words})`);
+            }
+          }
+        });
+      });
+      
+      // Set initial tempo
+      if (this.tempoChanges.has(0)) {
+        this.tempo = this.tempoChanges.get(0)!;
+      } else {
+        this.tempo = 120;
+        console.log('No initial tempo found, using default: 120 BPM');
+      }
+      
+    } catch (error) {
+      console.error('Failed to extract tempo:', error);
+      this.tempo = 120;
+    }
+  }
+
   private extractDynamicsFromMusicXML(xmlContent: string): void {
     this.noteDynamics.clear();
     
@@ -486,10 +580,15 @@ export class ScoreRenderer {
         });
       });
       
+      // Track all entries (notes and rests) by timestamp to calculate proper delays
+      const timestampToAbsoluteTime = new Map<number, number>(); // timestamp -> localTimestamp (absolute position)
+      let cumulativeTime = 0; // Track absolute time across entire piece
+      
       // Now parse notes using the visual measure index
       for (let measureIndex = 0; measureIndex < sheet.SourceMeasures.length; measureIndex++) {
         const measure = sheet.SourceMeasures[measureIndex];
         const measureTimestamps = new Map<number, number>();
+        const measureStartTime = cumulativeTime;
         
         for (const verticalContainer of measure.VerticalSourceStaffEntryContainers) {
           const localTimestamp = verticalContainer.Timestamp.RealValue;
@@ -509,10 +608,11 @@ export class ScoreRenderer {
               if (!voiceEntry?.Notes) continue;
               
               for (const note of voiceEntry.Notes) {
-                // Skip rests and notes that shouldn't be printed
+                // Skip rests and notes that shouldn't be printed for note groups
                 if (!note?.Pitch) continue;
-                // @ts-ignore - accessing private properties
-                if (note.isRestFlag === true) continue;
+                // @ts-ignore
+                const isRest = note.isRestFlag === true;
+                if (isRest) continue;
                 // @ts-ignore - accessing private properties
                 if (note.printObject === false) continue;
                 
@@ -523,6 +623,8 @@ export class ScoreRenderer {
                 if (!measureTimestamps.has(localTimestamp)) {
                   measureTimestamps.set(localTimestamp, globalTimestamp);
                   timestampToCursorPosition.set(globalTimestamp, cursorPosition);
+                  // Store absolute time across entire piece
+                  timestampToAbsoluteTime.set(globalTimestamp, measureStartTime + localTimestamp);
                   globalTimestamp++;
                 }
                 
@@ -558,10 +660,12 @@ export class ScoreRenderer {
                   // Check for ties
                   const isTied = !!note.NoteTie;
                   
+                  const duration = note.Length.RealValue;
+                  
                   const noteData: Note = {
                     pitch: midiNote,
                     hand,
-                    duration: note.Length.RealValue,
+                    duration,
                     measureIndex: visualMeasureIndex,
                     timestamp,
                     velocity,
@@ -588,6 +692,11 @@ export class ScoreRenderer {
           // Increment cursor position for every container (including rests)
           cursorPosition++;
         }
+        
+        // Update cumulative time for next measure
+        // Get the measure length from the last timestamp + its duration
+        const measureLength = measure.Duration.RealValue;
+        cumulativeTime += measureLength;
       }
 
       const sortedTimestamps = Array.from(notesByTimestamp.keys()).sort((a, b) => a - b);
@@ -596,11 +705,33 @@ export class ScoreRenderer {
         const notes = notesByTimestamp.get(timestamp)!;
         if (notes.length > 0) {
           const noteGroupIndex = this.noteGroups.length;
+          const measureIndex = notes[0].measureIndex;
+          
+          // Find the tempo for this measure (use most recent tempo change)
+          let tempo = this.tempo;
+          for (let m = measureIndex; m >= 0; m--) {
+            if (this.tempoChanges.has(m)) {
+              tempo = this.tempoChanges.get(m)!;
+              break;
+            }
+          }
+          
+          // Get absolute time position
+          const absoluteTime = timestampToAbsoluteTime.get(timestamp) || 0;
+          
           this.noteGroups.push({
             notes,
             timestamp,
-            measureIndex: notes[0].measureIndex,
+            measureIndex,
+            tempo,
+            absoluteTime,
           });
+          
+          // Log first measure (index 0)
+          if (measureIndex === 0) {
+            const durations = notes.map(n => `${n.duration}${n.isRest ? 'R' : ''}${n.isTied ? 'T' : ''}`).join(', ');
+            console.log(`Measure ${measureIndex + 1}, Group ${noteGroupIndex}, Timestamp ${timestamp}, AbsTime ${absoluteTime}: notes=[${durations}]`);
+          }
           
           // Map note group index to cursor position
           const cursorPos = timestampToCursorPosition.get(timestamp);
@@ -626,6 +757,10 @@ export class ScoreRenderer {
 
   getNoteGroups(): NoteGroup[] {
     return this.noteGroups;
+  }
+
+  getTempo(): number {
+    return this.tempo;
   }
 
   moveCursorToNoteGroup(index: number): void {

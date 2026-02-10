@@ -1,4 +1,4 @@
-import type { NoteGroup, PracticeMode, PracticeState } from './shared/types';
+import type { NoteGroup, PracticeMode, PracticeState, Note } from './shared/types';
 
 export class PracticeEngine {
   private state: PracticeState = {
@@ -11,6 +11,7 @@ export class PracticeEngine {
   
   private practiceMode: PracticeMode = 'both';
   private onProgressCallback: ((state: PracticeState) => void) | null = null;
+  private onAutoPlayCallback: ((notes: Note[], tempo: number) => void) | null = null;
 
   loadScore(noteGroups: NoteGroup[]): void {
     this.state.score = noteGroups;
@@ -101,10 +102,13 @@ export class PracticeEngine {
 
     // If no notes for this hand, skip to next group
     if (expectedNotes.length === 0) {
+      // Auto-play the other hand's notes
+      this.autoPlayOtherHand(currentGroup);
+      
       this.state.currentNoteGroupIndex++;
       this.notifyProgress();
-      // Recursively check next group
-      this.checkProgress();
+      // Recursively check next group with timing
+      this.scheduleNextAutoPlay();
       return;
     }
 
@@ -117,6 +121,9 @@ export class PracticeEngine {
       // Mark these notes as correct
       expectedNotes.forEach(note => this.state.correctNotesPressed.add(note));
       
+      // Auto-play the other hand's notes
+      this.autoPlayOtherHand(currentGroup);
+      
       // Advance to next note group
       this.state.currentNoteGroupIndex++;
       this.state.correctNotesPressed.clear();
@@ -127,9 +134,71 @@ export class PracticeEngine {
         console.log('Score completed!');
         this.pause();
       } else {
-        // Check if next group should be skipped
+        // Check if next group should be auto-played OR if it's a tied continuation
         this.notifyProgress();
-        this.checkProgress();
+        
+        // Check if next group is a tied continuation of currently held notes
+        const nextGroup = this.state.score[this.state.currentNoteGroupIndex];
+        const nextExpectedNotes = this.getExpectedNotes(nextGroup);
+        
+        // Schedule next check (either for auto-play or tied continuation)
+        this.scheduleNextAutoPlay();
+      }
+    }
+  }
+
+  private autoPlayOtherHand(noteGroup: NoteGroup): void {
+    if (this.practiceMode === 'both') return;
+    
+    // Get notes for the other hand
+    const otherHandNotes = noteGroup.notes.filter(note => {
+      if (this.practiceMode === 'left') return note.hand === 'right';
+      if (this.practiceMode === 'right') return note.hand === 'left';
+      return false;
+    });
+    
+    console.log(`Auto-playing other hand: ${otherHandNotes.length} notes`, otherHandNotes.map(n => n.pitch));
+    
+    if (otherHandNotes.length > 0 && this.onAutoPlayCallback) {
+      this.onAutoPlayCallback(otherHandNotes, noteGroup.tempo || 120);
+    }
+  }
+
+  private scheduleNextAutoPlay(): void {
+    // Check if next group should be auto-played (no notes for practicing hand)
+    if (this.state.currentNoteGroupIndex >= this.state.score.length) {
+      return;
+    }
+    
+    const nextGroup = this.state.score[this.state.currentNoteGroupIndex];
+    const expectedNotes = this.getExpectedNotes(nextGroup);
+    
+    // Check if next notes are already held (tied continuation)
+    const allNextNotesHeld = expectedNotes.length > 0 && expectedNotes.every(note => 
+      this.state.pressedNotes.has(note)
+    );
+    
+    if (expectedNotes.length === 0 || allNextNotesHeld) {
+      // Calculate delay to next group
+      const currentGroup = this.state.score[this.state.currentNoteGroupIndex - 1];
+      if (currentGroup && nextGroup && currentGroup.absoluteTime !== undefined && nextGroup.absoluteTime !== undefined) {
+        const timeDiff = nextGroup.absoluteTime - currentGroup.absoluteTime;
+        const tempo = nextGroup.tempo || 120;
+        const msPerQuarterNote = 60000 / tempo;
+        const delay = timeDiff * msPerQuarterNote * 4; // Use same slowdown as playback
+        
+        setTimeout(() => {
+          if (this.state.isPlaying) {
+            this.checkProgress();
+          }
+        }, delay);
+      } else {
+        // Fallback: immediate
+        setTimeout(() => {
+          if (this.state.isPlaying) {
+            this.checkProgress();
+          }
+        }, 0);
       }
     }
   }
@@ -173,6 +242,10 @@ export class PracticeEngine {
 
   onProgress(callback: (state: PracticeState) => void): void {
     this.onProgressCallback = callback;
+  }
+
+  onAutoPlay(callback: (notes: Note[], tempo: number) => void): void {
+    this.onAutoPlayCallback = callback;
   }
 
   private notifyProgress(): void {

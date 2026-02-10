@@ -4,6 +4,7 @@ export class SimpleKeyboard {
   private pressedKeys = new Set<number>();
   private highlightedKeys = new Set<number>();
   private useFlats: boolean = false;
+  private onNoteClickCallback: ((note: number) => void) | null = null;
   
   private readonly MIN_NOTE = 21; // A0
   private readonly MAX_NOTE = 108; // C8
@@ -15,6 +16,11 @@ export class SimpleKeyboard {
 
   setUseFlats(useFlats: boolean): void {
     this.useFlats = useFlats;
+  }
+
+  onNoteClick(callback: (note: number) => void): void {
+    console.log('Setting onNoteClick callback');
+    this.onNoteClickCallback = callback;
   }
 
   private isBlackKey(note: number): boolean {
@@ -48,6 +54,15 @@ export class SimpleKeyboard {
         const key = document.createElement('div');
         key.className = 'key white';
         key.dataset.note = note.toString();
+        
+        // Add click handler
+        key.addEventListener('mousedown', () => {
+          console.log('White key clicked:', note, 'callback exists:', !!this.onNoteClickCallback);
+          if (this.onNoteClickCallback) {
+            this.onNoteClickCallback(note);
+          }
+        });
+        
         this.container.appendChild(key);
         this.keys.set(note, key);
         whiteKeyPositions.set(note, whiteKeyIndex);
@@ -71,6 +86,14 @@ export class SimpleKeyboard {
           const key = document.createElement('div');
           key.className = 'key black';
           key.dataset.note = note.toString();
+          
+          // Add click handler
+          key.addEventListener('mousedown', () => {
+            console.log('Black key clicked:', note);
+            if (this.onNoteClickCallback) {
+              this.onNoteClickCallback(note);
+            }
+          });
           
           // Find the white key to the left
           let whiteKeyBefore = note - 1;

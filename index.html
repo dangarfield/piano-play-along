@@ -9,6 +9,11 @@
 </head>
 <body>
   <div id="app">
+    <div id="audio-init-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 10000;">
+      <button id="enable-audio-btn" style="padding: 1rem 2rem; font-size: 1.2rem; background: #4a9eff; color: white; border: none; border-radius: 8px; cursor: pointer;">
+        Click to Enable Audio
+      </button>
+    </div>
     <main class="main">
       <div class="score-container">
         <div id="score-display"></div>
@@ -102,9 +107,14 @@
               </div>
             </div>
           </div>
-        <div class="practice-controls">
-          <button id="pause-btn" class="btn btn-warning" disabled>Pause</button>
+          <div class="practice-controls">
+          <button id="play-btn" class="btn btn-primary" disabled>Play</button>
           <button id="reset-btn" class="btn" disabled>Back to Start</button>
+          </div>
+
+          <div class="tempo-control">
+            <label for="tempo-slider">Playback Speed: <span id="tempo-value">1.0x</span></label>
+            <input type="range" id="tempo-slider" min="0.25" max="1.5" step="0.05" value="1.0">
           </div>
 
           <div class="status-panel">
@@ -119,6 +129,10 @@
           <div class="status-item">
             <span class="label">Next Notes:</span>
             <span id="next-notes">-</span>
+          </div>
+          <div class="status-item">
+            <span class="label">Tempo:</span>
+            <span id="current-tempo">-</span>
           </div>
           </div>
 

@@ -92,6 +92,27 @@ export class SoundHandler {
     });
   }
 
+  async playNote(midiNote: number, duration: number, velocity: number = 0.7): Promise<void> {
+    if (!this.sampler || !this.isLoaded) {
+      console.warn('Sampler not loaded yet');
+      return;
+    }
+
+    // Ensure audio context is running
+    if (Tone.getContext().state !== 'running') {
+      await Tone.start();
+    }
+
+    const noteName = this.midiToNoteName(midiNote);
+    this.sampler.triggerAttackRelease(noteName, duration, undefined, velocity);
+    this.activeNotes.add(noteName);
+
+    // Remove from active notes after release
+    setTimeout(() => {
+      this.activeNotes.delete(noteName);
+    }, duration * 1000);
+  }
+
   stopAllNotes(): void {
     if (!this.sampler || !this.isLoaded) return;
 

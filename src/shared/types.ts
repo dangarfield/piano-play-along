@@ -10,12 +10,25 @@ export interface Note {
   timestamp: number; // Position in score
   velocity: number; // 0-1
   isTied: boolean; // Is this note tied to the next
+  isRest?: boolean; // Is this a rest
 }
 
 export interface NoteGroup {
   notes: Note[];
   timestamp: number;
   measureIndex: number;
+  tempo?: number; // BPM at this point in the score
+  absoluteTime?: number; // Absolute time position in quarter notes from start of piece
+}
+
+export interface ScoreData {
+  noteGroups: NoteGroup[];
+  tempo: number; // BPM
+}
+
+export interface TempoChange {
+  measureIndex: number;
+  tempo: number;
 }
 
 export interface MidiDevice {

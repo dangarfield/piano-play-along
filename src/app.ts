@@ -3,8 +3,10 @@ import { ScoreRenderer } from './score-renderer';
 import { PracticeEngine } from './practice-engine';
 import { UIController } from './ui-controller';
 import { SoundHandler } from './sound-handler';
+import { PlaybackEngine } from './playback-engine';
 import type { PracticeMode } from './shared/types';
 import { SimpleKeyboard } from './simple-keyboard';
+import * as Tone from 'tone';
 
 interface AppConfig {
   practiceMode: PracticeMode;
@@ -12,6 +14,7 @@ interface AppConfig {
   voiceCommandsMuted: boolean;
   keyboardSize: number;
   showNoteNames: boolean;
+  tempoMultiplier: number;
 }
 
 class App {
@@ -20,6 +23,7 @@ class App {
   private practiceEngine: PracticeEngine;
   private uiController: UIController;
   private soundHandler: SoundHandler;
+  private playbackEngine!: PlaybackEngine;
   private keyboard!: SimpleKeyboard;
   private readonly CONFIG_KEY = 'piano-play-along-config';
   private readonly SCORE_KEY = 'piano-play-along-saved-score';
@@ -49,6 +53,7 @@ class App {
       voiceCommandsMuted: false,
       keyboardSize: 100,
       showNoteNames: false,
+      tempoMultiplier: 1.0,
     };
   }
 
@@ -70,11 +75,11 @@ class App {
   }
 
   private async initialize(): Promise<void> {
-    this.setupEventListeners();
-    this.initializeKeyboard();
-    this.setupVoiceCommands();
     await this.initializeMidi();
     await this.initializeSound();
+    this.initializeKeyboard();
+    this.setupEventListeners();
+    this.setupVoiceCommands();
     
     // Setup score library click handlers
     this.setupScoreLibrary();
@@ -110,6 +115,33 @@ class App {
     if (!container) return;
 
     this.keyboard = new SimpleKeyboard(container);
+    
+    // Set up keyboard click handler to emulate MIDI
+    this.keyboard.onNoteClick((note) => {
+      console.log('Keyboard note click callback:', note);
+      
+      // Play the sound
+      const tempo = 120;
+      const msPerQuarterNote = 60000 / tempo;
+      const duration = 0.5 * msPerQuarterNote * 4 / 1000; // Quarter note duration
+      this.soundHandler.playNote(note, duration, 0.7);
+      
+      // Only handle as MIDI input if playback is not active
+      if (this.playbackEngine && !this.playbackEngine.getIsPlaying()) {
+        // Emulate MIDI note on
+        this.practiceEngine.handleNoteOn(note);
+        
+        const expectedNotes = this.practiceEngine.getCurrentExpectedNotes();
+        const isCorrect = expectedNotes.includes(note);
+        this.keyboard.keyDown(note, isCorrect);
+        
+        // Auto release after 200ms
+        setTimeout(() => {
+          this.practiceEngine.handleNoteOff(note);
+          this.keyboard.keyUp(note);
+        }, 200);
+      }
+    });
   }
 
   private async initializeMidi(): Promise<void> {
@@ -122,7 +154,11 @@ class App {
 
       this.midiHandler.onNoteOn((note, velocity) => {
         console.log('Note ON:', note, velocity);
-        this.practiceEngine.handleNoteOn(note);
+        
+        // Only handle MIDI input if playback is not active
+        if (!this.playbackEngine.getIsPlaying()) {
+          this.practiceEngine.handleNoteOn(note);
+        }
         
         const expectedNotes = this.practiceEngine.getCurrentExpectedNotes();
         const isCorrect = expectedNotes.includes(note);
@@ -131,7 +167,11 @@ class App {
 
       this.midiHandler.onNoteOff((note) => {
         console.log('Note OFF:', note);
-        this.practiceEngine.handleNoteOff(note);
+        
+        // Only handle MIDI input if playback is not active
+        if (!this.playbackEngine.getIsPlaying()) {
+          this.practiceEngine.handleNoteOff(note);
+        }
         this.keyboard.keyUp(note);
       });
 
@@ -142,10 +182,16 @@ class App {
       this.practiceEngine.onProgress((state) => {
         const expectedNotes = this.practiceEngine.getCurrentExpectedNotes();
         this.uiController.updatePianoKeys(state, expectedNotes);
+        
+        // Get current tempo from note group
+        const currentGroup = state.score[state.currentNoteGroupIndex];
+        const tempo = currentGroup?.tempo || 120;
+        
         this.uiController.updateStatus(
           this.practiceEngine.getCurrentMeasure(),
           this.practiceEngine.getProgress(),
-          expectedNotes
+          expectedNotes,
+          tempo
         );
         this.uiController.updatePlayPauseButtons(state.isPlaying);
         
@@ -159,6 +205,17 @@ class App {
         });
       });
 
+      // Setup auto-play for other hand
+      this.practiceEngine.onAutoPlay((notes, tempo) => {
+        console.log('Auto-play callback triggered:', notes.length, 'notes');
+        notes.forEach(note => {
+          const msPerQuarterNote = 60000 / tempo;
+          const duration = note.duration * msPerQuarterNote * 4 / 1000; // Same calculation as playback
+          console.log(`Playing auto note ${note.pitch} for ${duration}s`);
+          this.soundHandler.playNote(note.pitch, duration, note.velocity);
+        });
+      });
+
     } catch (error) {
       console.error('Failed to initialize MIDI:', error);
       alert('MIDI is not supported in this browser or permission was denied. Please use Chrome, Edge, or Opera.');
@@ -169,6 +226,18 @@ class App {
     try {
       await this.soundHandler.initialize();
       this.scoreRenderer.setSoundHandler(this.soundHandler);
+      this.playbackEngine = new PlaybackEngine(this.soundHandler);
+      
+      // Setup playback callbacks
+      this.playbackEngine.onProgress((index) => {
+        this.scoreRenderer.moveCursorToNoteGroup(index);
+        this.practiceEngine.jumpToNoteGroup(index);
+      });
+      
+      this.playbackEngine.onComplete(() => {
+        this.uiController.updatePlayButton(false);
+      });
+      
       console.log('Sound initialized');
     } catch (error) {
       console.error('Failed to initialize sound:', error);
@@ -372,13 +441,40 @@ class App {
       this.saveConfig({ showNoteNames: show });
     });
 
+    // Tempo slider
+    const tempoSlider = document.getElementById('tempo-slider') as HTMLInputElement;
+    const tempoValue = document.getElementById('tempo-value') as HTMLSpanElement;
+    
+    // Load saved tempo
+    if (tempoSlider && tempoValue) {
+      const savedTempo = config.tempoMultiplier ?? 1.0;
+      tempoSlider.value = savedTempo.toString();
+      tempoValue.textContent = `${savedTempo.toFixed(2)}x`;
+      this.playbackEngine.setTempoMultiplier(savedTempo);
+    }
+    
+    tempoSlider?.addEventListener('input', (e) => {
+      const multiplier = parseFloat((e.target as HTMLInputElement).value);
+      if (tempoValue) {
+        tempoValue.textContent = `${multiplier.toFixed(2)}x`;
+      }
+      this.playbackEngine.setTempoMultiplier(multiplier);
+      this.saveConfig({ tempoMultiplier: multiplier });
+    });
+
     // Control buttons
-    document.getElementById('pause-btn')?.addEventListener('click', () => {
-      const state = this.practiceEngine.getState();
-      if (state.isPlaying) {
-        this.practiceEngine.pause();
-      } else {
+    document.getElementById('play-btn')?.addEventListener('click', () => {
+      if (this.playbackEngine.getIsPlaying()) {
+        this.playbackEngine.stop();
+        this.uiController.updatePlayButton(false);
+        // Re-enable practice mode
         this.practiceEngine.start();
+      } else {
+        const currentIndex = this.practiceEngine.getState().currentNoteGroupIndex;
+        // Pause practice mode during playback
+        this.practiceEngine.pause();
+        this.playbackEngine.play(currentIndex);
+        this.uiController.updatePlayButton(true);
       }
     });
 
@@ -386,6 +482,12 @@ class App {
       this.practiceEngine.reset();
       this.scoreRenderer.resetCursor();
       this.practiceEngine.start();
+      
+      // Stop playback if playing
+      if (this.playbackEngine.getIsPlaying()) {
+        this.playbackEngine.stop();
+        this.uiController.updatePlayButton(false);
+      }
     });
 
     // Clear score button
@@ -448,8 +550,11 @@ class App {
       
       await this.scoreRenderer.loadScore(file);
       const noteGroups = this.scoreRenderer.getNoteGroups();
+      const tempo = this.scoreRenderer.getTempo();
       
       this.practiceEngine.loadScore(noteGroups);
+      this.playbackEngine.loadScore(noteGroups);
+      this.playbackEngine.setTempo(tempo);
       
       // Set up note click handler
       this.scoreRenderer.onNoteClick((index) => {
@@ -462,7 +567,7 @@ class App {
       
       this.uiController.hideMessage();
       this.uiController.enableControls(true);
-      this.uiController.updateStatus(1, 0, []);
+      this.uiController.updateStatus(1, 0, [], this.scoreRenderer.getTempo());
       
       // Show clear button
       const clearBtn = document.getElementById('clear-file-btn');
@@ -483,6 +588,26 @@ class App {
     
     if (savedScore) {
       try {
+        // Check if audio context needs to be started (only for auto-load)
+        const audioOverlay = document.getElementById('audio-init-overlay');
+        if (Tone.getContext().state !== 'running') {
+          if (audioOverlay) {
+            audioOverlay.style.display = 'flex';
+            // Wait for user to click
+            await new Promise<void>((resolve) => {
+              const enableAudioBtn = document.getElementById('enable-audio-btn');
+              const handler = async () => {
+                await Tone.start();
+                console.log('Audio context started');
+                audioOverlay.style.display = 'none';
+                enableAudioBtn?.removeEventListener('click', handler);
+                resolve();
+              };
+              enableAudioBtn?.addEventListener('click', handler);
+            });
+          }
+        }
+        
         this.uiController.showMessage('Loading saved score...');
         
         // Create a File object from saved content
@@ -510,8 +635,11 @@ class App {
         
         await this.scoreRenderer.loadScore(file);
         const noteGroups = this.scoreRenderer.getNoteGroups();
+        const tempo = this.scoreRenderer.getTempo();
         
         this.practiceEngine.loadScore(noteGroups);
+        this.playbackEngine.loadScore(noteGroups);
+        this.playbackEngine.setTempo(tempo);
         
         // Update keyboard to use flats or sharps based on key signature
         this.keyboard.setUseFlats(this.scoreRenderer.getUseFlats());
@@ -519,7 +647,7 @@ class App {
         
         this.uiController.hideMessage();
         this.uiController.enableControls(true);
-        this.uiController.updateStatus(1, 0, []);
+        this.uiController.updateStatus(1, 0, [], this.scoreRenderer.getTempo());
         
         // Show clear button
         const clearBtn = document.getElementById('clear-file-btn');

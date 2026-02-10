@@ -11,13 +11,15 @@ export class UIController {
     // Keyboard visualization now handled by minikeys in app.ts
   }
 
-  updateStatus(measure: number, progress: number, nextNotes: number[]): void {
+  updateStatus(measure: number, progress: number, nextNotes: number[], tempo: number): void {
     const measureEl = document.getElementById('current-measure');
     const progressEl = document.getElementById('progress');
     const nextNotesEl = document.getElementById('next-notes');
+    const tempoEl = document.getElementById('current-tempo');
     
     if (measureEl) measureEl.textContent = measure.toString();
     if (progressEl) progressEl.textContent = `${progress}%`;
+    if (tempoEl) tempoEl.textContent = `${tempo} BPM`;
     if (nextNotesEl) {
       if (nextNotes.length > 0) {
         const noteNames = nextNotes.map(n => this.midiNoteToName(n)).join(', ');
@@ -74,25 +76,29 @@ export class UIController {
   }
 
   enableControls(enabled: boolean): void {
-    const pauseBtn = document.getElementById('pause-btn') as HTMLButtonElement;
+    const playBtn = document.getElementById('play-btn') as HTMLButtonElement;
     const resetBtn = document.getElementById('reset-btn') as HTMLButtonElement;
     
-    if (pauseBtn) pauseBtn.disabled = !enabled;
+    if (playBtn) playBtn.disabled = !enabled;
     if (resetBtn) resetBtn.disabled = !enabled;
   }
 
   updatePlayPauseButtons(isPlaying: boolean): void {
-    const pauseBtn = document.getElementById('pause-btn') as HTMLButtonElement;
+    // No longer needed - practice mode always active
+  }
+
+  updatePlayButton(isPlaying: boolean): void {
+    const playBtn = document.getElementById('play-btn') as HTMLButtonElement;
     
-    if (pauseBtn) {
-      pauseBtn.textContent = isPlaying ? 'Pause' : 'Resume';
+    if (playBtn) {
+      playBtn.textContent = isPlaying ? 'Stop' : 'Play';
       
       if (isPlaying) {
-        pauseBtn.classList.remove('btn-success');
-        pauseBtn.classList.add('btn-warning');
+        playBtn.classList.remove('btn-primary');
+        playBtn.classList.add('btn-danger');
       } else {
-        pauseBtn.classList.remove('btn-warning');
-        pauseBtn.classList.add('btn-success');
+        playBtn.classList.remove('btn-danger');
+        playBtn.classList.add('btn-primary');
       }
     }
   }
