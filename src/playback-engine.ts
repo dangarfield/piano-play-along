@@ -1,11 +1,13 @@
 import type { NoteGroup } from './shared/types';
 import { SoundHandler } from './sound-handler';
+import type { RepeatHandler } from './repeat-handler';
 
 export class PlaybackEngine {
   private soundHandler: SoundHandler;
   private isPlaying: boolean = false;
-  private currentIndex: number = 0;
+  private currentPlaybackPosition: number = 0; // Position in playback sequence
   private noteGroups: NoteGroup[] = [];
+  private repeatHandler: RepeatHandler | null = null;
   private timeoutId: number | null = null;
   private onProgressCallback: ((index: number) => void) | null = null;
   private onCompleteCallback: (() => void) | null = null;
@@ -19,9 +21,10 @@ export class PlaybackEngine {
     this.soundHandler = soundHandler;
   }
 
-  loadScore(noteGroups: NoteGroup[]): void {
+  loadScore(noteGroups: NoteGroup[], repeatHandler?: RepeatHandler): void {
     this.noteGroups = noteGroups;
-    this.currentIndex = 0;
+    this.repeatHandler = repeatHandler || null;
+    this.currentPlaybackPosition = 0;
     
     // Try to extract tempo from the score (would need to be passed in)
     // For now, use default 120 BPM
@@ -40,7 +43,7 @@ export class PlaybackEngine {
     if (this.isPlaying) return;
     
     this.isPlaying = true;
-    this.currentIndex = startIndex;
+    this.currentPlaybackPosition = startIndex;
     this.activeNotes.clear();
     this.startTime = performance.now();
     this.pausedTime = 0;
@@ -86,7 +89,6 @@ export class PlaybackEngine {
             }
             
             (note as any).totalDuration = totalDuration;
-            console.log(`Tie start: note ${note.pitch} at group ${i}, total duration: ${totalDuration}`);
           }
         } else {
           // Not tied - clear this pitch from active ties
@@ -97,7 +99,11 @@ export class PlaybackEngine {
   }
 
   private async playNextGroup(): Promise<void> {
-    if (!this.isPlaying || this.currentIndex >= this.noteGroups.length) {
+    const sequenceLength = this.repeatHandler 
+      ? this.repeatHandler.getSequenceLength() 
+      : this.noteGroups.length;
+    
+    if (!this.isPlaying || this.currentPlaybackPosition >= sequenceLength) {
       this.stop();
       if (this.onCompleteCallback) {
         this.onCompleteCallback();
@@ -105,14 +111,25 @@ export class PlaybackEngine {
       return;
     }
 
-    const currentGroup = this.noteGroups[this.currentIndex];
+    // Get the actual note group index from the playback sequence
+    const noteGroupIndex = this.repeatHandler
+      ? this.repeatHandler.getNoteGroupIndexForPosition(this.currentPlaybackPosition)
+      : this.currentPlaybackPosition;
+    
+    if (noteGroupIndex < 0 || noteGroupIndex >= this.noteGroups.length) {
+      this.currentPlaybackPosition++;
+      await this.playNextGroup();
+      return;
+    }
+    
+    const currentGroup = this.noteGroups[noteGroupIndex];
     
     // Use tempo from the note group if available
     const tempo = currentGroup.tempo || this.tempo;
     
-    // Notify progress
+    // Notify progress with the note group index (for cursor positioning)
     if (this.onProgressCallback) {
-      this.onProgressCallback(this.currentIndex);
+      this.onProgressCallback(noteGroupIndex);
     }
 
     // Play notes in the current group, handling ties
@@ -120,33 +137,57 @@ export class PlaybackEngine {
 
     // Calculate when the next group should play using absolute time positions
     let delay = 0;
-    if (this.currentIndex < this.noteGroups.length - 1) {
-      const nextGroup = this.noteGroups[this.currentIndex + 1];
+    const nextPlaybackPosition = this.currentPlaybackPosition + 1;
+    
+    if (nextPlaybackPosition < sequenceLength) {
+      const nextNoteGroupIndex = this.repeatHandler
+        ? this.repeatHandler.getNoteGroupIndexForPosition(nextPlaybackPosition)
+        : nextPlaybackPosition;
       
-      // Calculate delay based on absolute time difference
-      if (currentGroup.absoluteTime !== undefined && nextGroup.absoluteTime !== undefined) {
-        const timeDiff = nextGroup.absoluteTime - currentGroup.absoluteTime;
-        const msPerQuarterNote = 60000 / tempo;
-        delay = timeDiff * msPerQuarterNote * 4 / this.tempoMultiplier; // Apply tempo multiplier
-      } else {
-        // Fallback to shortest duration
-        let shortestDuration = Infinity;
-        for (const note of currentGroup.notes) {
-          if (!note.isTied || !this.activeNotes.has(note.pitch)) {
-            shortestDuration = Math.min(shortestDuration, note.duration);
+      if (nextNoteGroupIndex >= 0 && nextNoteGroupIndex < this.noteGroups.length) {
+        const nextGroup = this.noteGroups[nextNoteGroupIndex];
+        
+        // Calculate delay based on absolute time difference
+        if (currentGroup.absoluteTime !== undefined && nextGroup.absoluteTime !== undefined) {
+          // Check if we're jumping (non-sequential note group indices or going backward)
+          const isJump = (nextNoteGroupIndex !== noteGroupIndex + 1);
+          
+          if (isJump) {
+            // We're jumping (repeat or volta skip) - use the longest duration of the current note group
+            // to ensure all notes finish playing before jumping
+            let longestDuration = 0;
+            for (const note of currentGroup.notes) {
+              const noteDuration = (note as any).totalDuration || note.duration;
+              longestDuration = Math.max(longestDuration, noteDuration);
+            }
+            const msPerQuarterNote = 60000 / tempo;
+            delay = longestDuration * msPerQuarterNote * 4 / this.tempoMultiplier;
+          } else {
+            // Normal sequential progression
+            const timeDiff = nextGroup.absoluteTime - currentGroup.absoluteTime;
+            const msPerQuarterNote = 60000 / tempo;
+            delay = timeDiff * msPerQuarterNote * 4 / this.tempoMultiplier; // Apply tempo multiplier
           }
+        } else {
+          // Fallback to shortest duration
+          let shortestDuration = Infinity;
+          for (const note of currentGroup.notes) {
+            if (!note.isTied || !this.activeNotes.has(note.pitch)) {
+              shortestDuration = Math.min(shortestDuration, note.duration);
+            }
+          }
+          
+          if (shortestDuration === Infinity) {
+            shortestDuration = 0.01;
+          }
+          
+          const msPerQuarterNote = 60000 / tempo;
+          delay = shortestDuration * msPerQuarterNote * 4 / this.tempoMultiplier;
         }
-        
-        if (shortestDuration === Infinity) {
-          shortestDuration = 0.01;
-        }
-        
-        const msPerQuarterNote = 60000 / tempo;
-        delay = shortestDuration * msPerQuarterNote * 4 / this.tempoMultiplier;
       }
     }
 
-    this.currentIndex++;
+    this.currentPlaybackPosition++;
 
     // Schedule next group
     this.timeoutId = window.setTimeout(() => {
@@ -160,7 +201,6 @@ export class PlaybackEngine {
     for (const note of noteGroup.notes) {
       // Skip if this is a tie continuation
       if ((note as any).isTieContinuation) {
-        console.log(`Skipping tied continuation note ${note.pitch}`);
         continue;
       }
       
@@ -168,10 +208,6 @@ export class PlaybackEngine {
       const playDuration = (note as any).totalDuration || note.duration;
       const duration = playDuration * msPerQuarterNote * 4 / this.tempoMultiplier / 1000; // Apply tempo multiplier, convert to seconds
       await this.soundHandler.playNote(note.pitch, duration, note.velocity);
-      
-      const isCont = (note as any).isTieContinuation ? 'CONT' : '';
-      const totalDur = (note as any).totalDuration ? `total=${(note as any).totalDuration}` : '';
-      console.log(`Playing note ${note.pitch} for ${playDuration} beats (original: ${note.duration}), isTied=${note.isTied} ${isCont} ${totalDur}`);
     }
   }
 
@@ -197,8 +233,8 @@ export class PlaybackEngine {
   }
 
   resume(): void {
-    if (!this.isPlaying && this.currentIndex < this.noteGroups.length) {
-      this.play(this.currentIndex);
+    if (!this.isPlaying && this.currentPlaybackPosition < (this.repeatHandler ? this.repeatHandler.getSequenceLength() : this.noteGroups.length)) {
+      this.play(this.currentPlaybackPosition);
     }
   }
 
@@ -207,7 +243,11 @@ export class PlaybackEngine {
   }
 
   getCurrentIndex(): number {
-    return this.currentIndex;
+    // Return the note group index for compatibility
+    if (this.repeatHandler) {
+      return this.repeatHandler.getNoteGroupIndexForPosition(this.currentPlaybackPosition);
+    }
+    return this.currentPlaybackPosition;
   }
 
   onProgress(callback: (index: number) => void): void {

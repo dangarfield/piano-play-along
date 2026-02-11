@@ -19,6 +19,7 @@ Open in Chrome, Edge, or Opera (Web MIDI API required). Connect MIDI keyboard, l
 
 - **Real-time MIDI tracking** - Automatically advances when correct notes are played
 - **Automatic playback** - Play button with accurate timing, tempo, and tied note handling
+- **Repeat handling** - Correctly plays repeats, volta brackets (1st/2nd endings), and jumps back to repeat sections
 - **Tempo extraction** - Reads tempo from MusicXML (sound elements, metronome markings)
 - **Tempo control** - Adjustable playback speed (0.2x - 1.5x in 0.1x increments)
 - **Practice modes** - Left hand, right hand, or both hands
@@ -35,6 +36,7 @@ Open in Chrome, Edge, or Opera (Web MIDI API required). Connect MIDI keyboard, l
 - **Responsive** - Re-renders on window resize
 - **Clean header UI** - Light-themed header with all controls accessible
 - **Score library** - Pre-loaded collection of classical pieces and game music
+- **Completion celebration** - Confetti animation when score is completed
 
 ## Tech Stack
 
@@ -53,6 +55,7 @@ src/
 ├── score-renderer.ts         # OSMD wrapper, MusicXML parsing
 ├── practice-engine.ts        # Note matching & progression logic
 ├── playback-engine.ts        # Automatic playback with timing
+├── repeat-handler.ts         # Repeat/volta bracket expansion logic
 ├── sound-handler.ts          # Tone.js audio synthesis
 ├── ui-controller.ts          # UI state updates
 ├── simple-keyboard.ts        # Piano keyboard visualization
@@ -104,12 +107,19 @@ MIDI device management using WebMidi.js.
 OpenSheetMusicDisplay wrapper for MusicXML parsing and rendering.
 
 **Key methods:**
-- `loadScore(file)` - Upload MusicXML, parse notes, render score
+- `loadScore(file)` - Upload MusicXML, parse notes, render score, build repeat sequence
 - `getNoteGroups()` - Extract note groups with timing/pitch/hand
+- `getRepeatHandler()` - Get repeat handler instance for playback sequence
 - `moveCursorToNoteGroup(index)` - Move cursor, auto-scroll to position
 - `getUseFlats()` - Get key signature preference (flats vs sharps)
 - `setZoom(level)` - Adjust score zoom level
 - `parseKeySignatureFromOSMD()` - Extract key signature from OSMD data
+
+**Repeat handling:**
+- After loading and parsing notes, calls `repeatHandler.buildPlaybackSequence()`
+- Passes OSMD instance and linear note groups to repeat handler
+- Repeat handler analyzes `SourceMeasures` for repeat instructions
+- Returns expanded playback sequence that engines use for correct order
 
 **Key signature detection:**
 - Reads `firstInstructionsStaffEntries[].Instructions[].keyType` from first measure
@@ -132,22 +142,26 @@ OpenSheetMusicDisplay wrapper for MusicXML parsing and rendering.
 Core practice logic. Compares played notes against expected notes, manages progression.
 
 **State:**
-- `currentNoteGroupIndex` - Current position in score
+- `currentPlaybackPosition` - Position in expanded playback sequence (not linear note group index)
+- `currentNoteGroupIndex` - Current note group index in linear array (for cursor positioning)
 - `pressedNotes` - Set of currently held MIDI notes
 - `correctNotesPressed` - Set of correctly played notes in current group
 - `isPlaying` - Whether practice session is active
 - `score` - Array of note groups from score
+- `repeatHandler` - Reference to repeat handler for sequence navigation
 
 **Key methods:**
-- `loadScore(noteGroups)` - Initialize with parsed score
+- `loadScore(noteGroups, repeatHandler)` - Initialize with parsed score and repeat handler
 - `handleNoteOn(midiNote)` - Process MIDI note on, check progress
 - `handleNoteOff(midiNote)` - Process MIDI note off
 - `checkProgress()` - Compare pressed vs expected, advance if match
 - `setPracticeMode(mode)` - Filter notes by hand (left/right/both)
-- `jumpToNoteGroup(index)` - Navigate to specific position
+- `jumpToNoteGroup(index)` - Navigate to specific position (finds first occurrence in sequence)
 - `skipEmptyGroups()` - Auto-skip groups with no notes for selected hand
 - `autoPlayOtherHand()` - Play non-practicing hand's notes automatically
 - `scheduleNextAutoPlay()` - Schedule next auto-play with proper timing
+- `getCurrentNoteGroupIndex()` - Convert playback position to note group index
+- `getCurrentPlaybackPosition()` - Get current position in playback sequence
 - `start()` - Begin practice session
 - `pause()` - Pause practice session
 - `reset()` - Return to beginning
@@ -155,18 +169,26 @@ Core practice logic. Compares played notes against expected notes, manages progr
 **Progression logic:**
 1. Filter expected notes by practice mode
 2. Check if all expected notes are currently pressed
-3. If match, advance to next note group
-4. Auto-play other hand's notes with callback
-5. Skip groups with no notes for active hand(s)
-6. Handle tied note continuations automatically
-7. Emit progress event to update UI
+3. If match, advance playback position (not note group index)
+4. Convert playback position to note group index for cursor
+5. Auto-play other hand's notes with callback
+6. Skip groups with no notes for active hand(s)
+7. Handle tied note continuations automatically
+8. Emit progress event to update UI
+9. Trigger completion callback when sequence ends
+
+**Repeat handling:**
+- Uses `currentPlaybackPosition` to track position in expanded sequence
+- Converts to `currentNoteGroupIndex` via `repeatHandler.getNoteGroupIndexForPosition()`
+- When jumping, uses `repeatHandler.getPositionForNoteGroupIndex()` to find first occurrence
+- Completion check uses `repeatHandler.getSequenceLength()` instead of note group count
 
 ### playback-engine.ts
 Automatic playback with accurate timing and tied note handling.
 
 **Key methods:**
-- `loadScore(noteGroups)` - Initialize with parsed score
-- `play(startIndex)` - Start playback from position
+- `loadScore(noteGroups, repeatHandler)` - Initialize with parsed score and repeat handler
+- `play(startPosition)` - Start playback from playback position (not note group index)
 - `stop()` - Stop playback
 - `setTempo(bpm)` - Set base tempo
 - `setTempoMultiplier(multiplier)` - Adjust playback speed (0.25x - 1.5x)
@@ -175,15 +197,29 @@ Automatic playback with accurate timing and tied note handling.
 
 **Timing calculation:**
 - Uses absolute time positions from OSMD (`localTimestamp`)
-- Calculates delays: `(nextTime - currentTime) * msPerQuarterNote * 4 / multiplier`
+- Detects jumps (non-sequential note group indices) vs normal progression
+- For jumps (repeats/volta skips): uses longest note duration in current group
+- For normal progression: calculates delays using `(nextTime - currentTime) * msPerQuarterNote * 4 / multiplier`
 - Handles tempo changes per measure
 - Properly spaces triplets, rests, and multiple voices
+
+**Jump detection:**
+- Compares current and next note group indices
+- If `nextNoteGroupIndex !== noteGroupIndex + 1`, it's a jump
+- Jumps include: backward repeats, forward volta skips, any non-sequential navigation
+- Uses longest note duration to ensure all notes finish before jumping
 
 **Tied note handling:**
 - Pre-calculates total duration for tied note chains
 - Marks continuation notes with `isTieContinuation` flag
 - First note plays with full combined duration
 - Continuation notes are skipped during playback
+
+**Repeat handling:**
+- Uses `currentPlaybackPosition` to track position in expanded sequence
+- Converts to note group index via `repeatHandler.getNoteGroupIndexForPosition()`
+- Completion check uses `repeatHandler.getSequenceLength()`
+- Progress callback receives note group index (for cursor positioning)
 
 ### sound-handler.ts
 Audio synthesis using Tone.js.
@@ -425,3 +461,72 @@ All settings stored in localStorage:
 - Timing enforcement mode
 - Multiple voice support (beyond treble/bass)
 - Keyboard click to emulate MIDI input
+
+
+### repeat-handler.ts
+Handles repeat logic for music playback by parsing OSMD repetition data and creating an expanded playback sequence.
+
+**Key concepts:**
+- **Linear note groups**: Original sequential array of note groups from score (no repeats expanded)
+- **Playback sequence**: Expanded array of `PlaybackStep` objects that includes repeated sections
+- **PlaybackStep**: `{ noteGroupIndex, measureIndex, repetitionIteration }` - maps playback position to note group
+
+**Key methods:**
+- `buildPlaybackSequence(osmd, noteGroups)` - Main entry point, analyzes score and builds sequence
+- `parseRepetitionInstructions(sourceMeasures)` - Extracts repeat info from OSMD SourceMeasures
+- `buildSequenceFromRepeatInfo(repeatInfo)` - Expands repeats into playback order
+- `getPlaybackSequence()` - Returns the expanded sequence
+- `getSequenceLength()` - Total steps in playback (includes repeats)
+- `getNoteGroupIndexForPosition(position)` - Convert playback position to note group index
+- `getPositionForNoteGroupIndex(noteGroupIndex)` - Find first occurrence of note group in sequence
+
+**Repeat parsing:**
+- Checks `SourceMeasure.beginsWithLineRepetition()` for forward repeat barlines (start)
+- Checks `SourceMeasure.endsWithLineRepetition()` for backward repeat barlines (end)
+- Checks `SourceMeasure.beginsRepetitionEnding()` for volta brackets
+- Reads `FirstRepetitionInstructions[0].endingIndices` for volta numbers ([1], [2], etc.)
+- Handles volta brackets that span multiple measures
+- Detects when backward repeat measure is also a volta ending (volta 2)
+
+**Sequence building:**
+- Iterates through measures, detecting repeat sections
+- For each repeat: plays common section, then appropriate ending for each iteration
+- Volta 1 played on first iteration, volta 2 on second iteration, etc.
+- Skips measures already processed (inside repeats)
+- Handles repeats without explicit start (implicit from beginning)
+
+**Data structures:**
+```typescript
+interface PlaybackStep {
+  noteGroupIndex: number;      // Index into linear noteGroups array
+  measureIndex: number;         // Visual measure number
+  repetitionIteration: number;  // Which iteration (0=first, 1=second)
+}
+
+interface RepeatSection {
+  startMeasure: number;         // Measure with forward repeat
+  endMeasure: number;           // Measure with backward repeat
+  repeatCount: number;          // How many times to play (default 2)
+  endings: VoltaEnding[];       // Volta brackets
+}
+
+interface VoltaEnding {
+  startMeasure: number;         // First measure of ending
+  endMeasure: number;           // Last measure of ending
+  iterations: number[];         // Which iterations [1], [2], etc.
+}
+```
+
+**Example:**
+- Linear: measures 1-2-3-4-5-6-7-8-9-10-11-12
+- Repeat: 3-10 with volta 1 (measure 10), volta 2 (measure 11)
+- Sequence: 1-2-3-4-5-6-7-8-9-10(volta1)-3-4-5-6-7-8-9-11(volta2)-12
+- Playback positions: 0-1-2-3-4-5-6-7-8-9-10-11-12-13-14-15-16-17-18
+- Note group indices: 0-1-2-3-4-5-6-7-8-9-2-3-4-5-6-7-8-10-11
+
+**Integration:**
+- Called by `score-renderer.ts` after parsing notes
+- Passed to `practice-engine.ts` and `playback-engine.ts` via `loadScore()`
+- Engines use playback positions internally, convert to note group indices for cursor/UI
+- Clicking measures finds first occurrence in sequence
+- Completion checks use sequence length, not note group count

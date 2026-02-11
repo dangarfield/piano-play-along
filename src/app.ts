@@ -7,6 +7,7 @@ import { PlaybackEngine } from './playback-engine';
 import type { PracticeMode } from './shared/types';
 import { SimpleKeyboard } from './simple-keyboard';
 import * as Tone from 'tone';
+import confetti from '@hiseb/confetti';
 
 interface AppConfig {
   practiceMode: PracticeMode;
@@ -89,7 +90,13 @@ class App {
     
     // Re-render on window resize
     window.addEventListener('resize', () => {
+      // Save current cursor position
+      const currentNoteGroupIndex = this.practiceEngine.getState().currentNoteGroupIndex;
+      
       this.scoreRenderer.render();
+      
+      // Restore cursor position
+      this.scoreRenderer.moveCursorToNoteGroup(currentNoteGroupIndex);
       this.scoreRenderer.scrollCursorIntoView();
       
       // Re-render keyboard to recalculate black key positions
@@ -99,6 +106,31 @@ class App {
           this.keyboard.destroy();
           this.keyboard = new SimpleKeyboard(container);
           this.keyboard.setUseFlats(this.scoreRenderer.getUseFlats());
+          
+          // Re-register keyboard click handler
+          this.keyboard.onNoteClick((note) => {
+            // Play the sound
+            const tempo = 120;
+            const msPerQuarterNote = 60000 / tempo;
+            const duration = 0.5 * msPerQuarterNote * 4 / 1000;
+            this.soundHandler.playNote(note, duration, 0.7);
+            
+            // Only handle as MIDI input if playback is not active
+            if (this.playbackEngine && !this.playbackEngine.getIsPlaying()) {
+              // Emulate MIDI note on
+              this.practiceEngine.handleNoteOn(note);
+              
+              const expectedNotes = this.practiceEngine.getCurrentExpectedNotes();
+              const isCorrect = expectedNotes.includes(note);
+              this.keyboard.keyDown(note, isCorrect);
+              
+              // Auto release after 200ms
+              setTimeout(() => {
+                this.practiceEngine.handleNoteOff(note);
+                this.keyboard.keyUp(note);
+              }, 200);
+            }
+          });
           
           // Restore highlighted notes
           const expectedNotes = this.practiceEngine.getCurrentExpectedNotes();
@@ -254,6 +286,19 @@ class App {
           this.soundHandler.playNote(note.pitch, duration, note.velocity);
         });
       });
+      
+      // Setup practice completion callback
+      this.practiceEngine.onComplete(() => {
+        console.log('Practice score completed!');
+        
+        // Throw confetti!
+        confetti({
+          count: 350,
+          velocity: 240,
+          size: 1.5,
+          position: { x: window.innerWidth * 0.50 , y: window.innerHeight * 0.4 }
+        });
+      });
 
     } catch (error) {
       console.error('Failed to initialize MIDI:', error);
@@ -274,7 +319,27 @@ class App {
       });
       
       this.playbackEngine.onComplete(() => {
+        console.log('Score completed!');
+        
+        // Throw confetti!
+        confetti({
+          count: 350,
+          velocity: 240,
+          size: 1.5,
+          position: { x: window.innerWidth * 0.50 , y: window.innerHeight * 0.4 }
+        });
+        
         this.uiController.updatePlayButton(false);
+        
+        // Update header play button
+        const headerPlayBtn = document.getElementById('header-play-btn');
+        if (headerPlayBtn) {
+          headerPlayBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>';
+          headerPlayBtn.classList.remove('active');
+        }
+        
+        // Restart practice engine
+        this.practiceEngine.start();
       });
       
       console.log('Sound initialized');
@@ -321,9 +386,9 @@ class App {
         }
         this.practiceEngine.start();
       } else {
-        const currentIndex = this.practiceEngine.getState().currentNoteGroupIndex;
+        const currentPlaybackPosition = this.practiceEngine.getCurrentPlaybackPosition();
         this.practiceEngine.pause();
-        this.playbackEngine.play(currentIndex);
+        this.playbackEngine.play(currentPlaybackPosition);
         if (headerPlayBtn) {
           headerPlayBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
           headerPlayBtn.classList.add('active');
@@ -470,9 +535,9 @@ class App {
           }
           this.practiceEngine.start();
         } else {
-          const currentIndex = this.practiceEngine.getState().currentNoteGroupIndex;
+          const currentPlaybackPosition = this.practiceEngine.getCurrentPlaybackPosition();
           this.practiceEngine.pause();
-          this.playbackEngine.play(currentIndex);
+          this.playbackEngine.play(currentPlaybackPosition);
           const headerPlayBtn = document.getElementById('header-play-btn');
           if (headerPlayBtn) {
             headerPlayBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
@@ -636,9 +701,10 @@ class App {
       
       const noteGroups = this.scoreRenderer.getNoteGroups();
       const tempo = this.scoreRenderer.getTempo();
+      const repeatHandler = this.scoreRenderer.getRepeatHandler();
       
-      this.practiceEngine.loadScore(noteGroups);
-      this.playbackEngine.loadScore(noteGroups);
+      this.practiceEngine.loadScore(noteGroups, repeatHandler);
+      this.playbackEngine.loadScore(noteGroups, repeatHandler);
       this.playbackEngine.setTempo(tempo);
       
       // Set up note click handler
@@ -749,6 +815,7 @@ class App {
         await this.scoreRenderer.loadScore(file);
         const noteGroups = this.scoreRenderer.getNoteGroups();
         const tempo = this.scoreRenderer.getTempo();
+        const repeatHandler = this.scoreRenderer.getRepeatHandler();
         
         // Remove loading overlay
         const loadingOverlay = document.getElementById('score-loading-overlay');
@@ -761,8 +828,8 @@ class App {
         
         if (scoreContainer && config.keyboardSize > 0) scoreContainer.classList.add('with-keyboard');
         
-        this.practiceEngine.loadScore(noteGroups);
-        this.playbackEngine.loadScore(noteGroups);
+        this.practiceEngine.loadScore(noteGroups, repeatHandler);
+        this.playbackEngine.loadScore(noteGroups, repeatHandler);
         this.playbackEngine.setTempo(tempo);
         
         // Update keyboard to use flats or sharps based on key signature
@@ -1004,9 +1071,9 @@ class App {
     // Match play/stop
     if (command === 'play') {
       if (!this.playbackEngine.getIsPlaying()) {
-        const currentIndex = this.practiceEngine.getState().currentNoteGroupIndex;
+        const currentPlaybackPosition = this.practiceEngine.getCurrentPlaybackPosition();
         this.practiceEngine.pause();
-        this.playbackEngine.play(currentIndex);
+        this.playbackEngine.play(currentPlaybackPosition);
         const headerPlayBtn = document.getElementById('header-play-btn');
         if (headerPlayBtn) {
           headerPlayBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
@@ -1141,6 +1208,31 @@ class App {
           this.keyboard.destroy();
           this.keyboard = new SimpleKeyboard(keyboardInner);
           this.keyboard.setUseFlats(this.scoreRenderer.getUseFlats());
+          
+          // Re-register keyboard click handler
+          this.keyboard.onNoteClick((note) => {
+            // Play the sound
+            const tempo = 120;
+            const msPerQuarterNote = 60000 / tempo;
+            const duration = 0.5 * msPerQuarterNote * 4 / 1000;
+            this.soundHandler.playNote(note, duration, 0.7);
+            
+            // Only handle as MIDI input if playback is not active
+            if (this.playbackEngine && !this.playbackEngine.getIsPlaying()) {
+              // Emulate MIDI note on
+              this.practiceEngine.handleNoteOn(note);
+              
+              const expectedNotes = this.practiceEngine.getCurrentExpectedNotes();
+              const isCorrect = expectedNotes.includes(note);
+              this.keyboard.keyDown(note, isCorrect);
+              
+              // Auto release after 200ms
+              setTimeout(() => {
+                this.practiceEngine.handleNoteOff(note);
+                this.keyboard.keyUp(note);
+              }, 200);
+            }
+          });
           
           // Restore highlighted notes
           const expectedNotes = this.practiceEngine.getCurrentExpectedNotes();

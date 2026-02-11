@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@hiseb/confetti':
+        specifier: ^2.1.0
+        version: 2.1.0
       '@stringsync/musicxml':
         specifier: ^0.3.0
         version: 0.3.0
@@ -377,6 +380,9 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@hiseb/confetti@2.1.0':
+    resolution: {integrity: sha512-yPalKd34NfmEsUTXj3ZrlNtj1J21WgoocDs8+92W/Quzl2j5ECuxX5L0jQp16tgvp+uIYdeNAmizP1WPyt5hfQ==}
 
   '@img/colour@1.0.0':
     resolution: {integrity: sha512-A5P/LfWGFSl6nsckYtjw9da+19jB8hkJ6ACTGcDfEJ0aE+l2n2El7dsVM7UVHZQ9s2lmYMWlrS21YLy2IR1LUw==}
@@ -2020,6 +2026,8 @@ snapshots:
 
   '@esbuild/win32-x64@0.27.3':
     optional: true
+
+  '@hiseb/confetti@2.1.0': {}
 
   '@img/colour@1.0.0': {}
 

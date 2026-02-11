@@ -2,6 +2,7 @@ import { OpenSheetMusicDisplay } from 'opensheetmusicdisplay';
 import type { Note, NoteGroup } from './shared/types';
 import JSZip from 'jszip';
 import type { SoundHandler } from './sound-handler';
+import { RepeatHandler } from './repeat-handler';
 
 export class ScoreRenderer {
   private osmd: OpenSheetMusicDisplay | null = null;
@@ -17,6 +18,8 @@ export class ScoreRenderer {
   private currentCursorPosition: number = 0;
   private soundHandler: SoundHandler | null = null;
   private noteDynamics: Map<string, number> = new Map(); // key: measure-staff-voice-timestamp-pitch
+  private repeatHandler: RepeatHandler = new RepeatHandler();
+  private cursorColor: string = '#4a9eff'; // Store cursor color
 
   setSoundHandler(soundHandler: SoundHandler): void {
     this.soundHandler = soundHandler;
@@ -91,7 +94,7 @@ export class ScoreRenderer {
     this.osmd.cursor.show();
     this.osmd.cursor.CursorOptions = {
       type: 0,
-      color: '#4a9eff',
+      color: this.cursorColor,
       alpha: 0.5,
       follow: false
     };
@@ -102,6 +105,9 @@ export class ScoreRenderer {
 
     // Parse notes from the score
     this.parseNotes();
+    
+    // Build playback sequence with repeat handling
+    this.repeatHandler.buildPlaybackSequence(this.osmd, this.noteGroups);
     
     // Setup click handlers after everything is ready
     this.setupNoteClickHandlers();
@@ -782,6 +788,10 @@ export class ScoreRenderer {
     return this.noteGroups;
   }
 
+  getRepeatHandler(): RepeatHandler {
+    return this.repeatHandler;
+  }
+
   getTempo(): number {
     return this.tempo;
   }
@@ -882,6 +892,17 @@ export class ScoreRenderer {
     if (this.osmd) {
       this.osmd.render();
       this.drawNoteNames();
+      
+      // Restore cursor options after render
+      if (this.osmd.cursor) {
+        this.osmd.cursor.CursorOptions = {
+          type: 0,
+          color: this.cursorColor,
+          alpha: 0.5,
+          follow: false
+        };
+        this.osmd.cursor.update();
+      }
     }
   }
 
