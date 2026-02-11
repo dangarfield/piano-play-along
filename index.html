@@ -9,16 +9,160 @@
 </head>
 <body>
   <div id="app">
-    <div id="audio-init-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 10000;">
+    <div id="audio-init-overlay" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 10000; cursor: pointer;">
       <button id="enable-audio-btn" style="padding: 1rem 2rem; font-size: 1.2rem; background: #4a9eff; color: white; border: none; border-radius: 8px; cursor: pointer;">
         Click to Enable Audio
       </button>
     </div>
+
+    <div id="toast" class="toast"></div>
+
+    <div id="list-header" class="score-header">
+      <div class="header-group header-group-left">
+      </div>
+      <div class="header-group header-group-right">
+        <button id="upload-score-btn" class="header-btn-primary">Upload MusicXML</button>
+        <a href="https://github.com/dangarfield/piano-play-along" target="_blank" rel="noopener noreferrer" class="header-btn" title="View on GitHub">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+
+    <div id="score-header" class="score-header" style="display: none;">
+      <div class="header-group header-group-left">
+        <button id="close-score-btn" class="header-btn" title="Close Score">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+        <button id="header-play-btn" class="header-btn" title="Play/Pause Automatic Playback (Space)">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 3l14 9-14 9V3z"/>
+          </svg>
+        </button>
+        <button id="header-reset-btn" class="header-btn" title="Back to Start">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M11 19l-7-7 7-7M18 19l-7-7 7-7"/>
+          </svg>
+        </button>
+        <div class="header-title" title="Score title">
+          <span id="header-score-title">-</span>
+        </div>
+      </div>
+
+      <div class="header-group header-group-center">
+        <div class="header-control" title="Playback Speed Multiplier">
+          <label>Speed:</label>
+          <input type="range" id="header-tempo-slider" min="0.2" max="1.5" step="0.1" value="1.0" title="Adjust playback speed (0.2x - 1.5x)">
+          <span id="header-tempo-value">1x</span>
+        </div>
+
+        <select id="header-practice-mode" class="header-select" title="Select which hand(s) to practice">
+          <option value="both">Both Hands</option>
+          <option value="right">Right Hand Only</option>
+          <option value="left">Left Hand Only</option>
+        </select>
+      </div>
+
+      <div class="header-group header-group-right">
+        <div class="header-info" title="Next notes to play">
+          <div class="header-info-row">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M20 14V19C20 20.1046 19.1046 21 18 21H17C15.8954 21 15 20.1046 15 19V18C15 16.8954 15.8954 16 17 16H20ZM20 16V8M20 8V4L15 3V7L20 8Z" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M7 16V19C7 20.1046 6.10457 21 5 21H4C2.89543 21 2 20.1046 2 19V18C2 16.8954 2.89543 16 4 16H7ZM7 16V8M7 8V4L12 3V7L7 8Z" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span id="header-right-notes">-</span>
+          </div>
+          <div class="header-info-row">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M20 14V19C20 20.1046 19.1046 21 18 21H17C15.8954 21 15 20.1046 15 19V18C15 16.8954 15.8954 16 17 16H20ZM20 16V8M20 8V4L15 3V7L20 8Z" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M7 16V19C7 20.1046 6.10457 21 5 21H4C2.89543 21 2 20.1046 2 19V18C2 16.8954 2.89543 16 4 16H7ZM7 16V8M7 8V4L12 3V7L7 8Z" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span id="header-left-notes">-</span>
+          </div>
+        </div>
+
+        <button id="header-show-notes-btn" class="header-btn" title="Toggle Note Names on Score">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M16 10H19M22 10H19M19 10V7M19 10V13" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M7 16V19C7 20.1046 6.10457 21 5 21H4C2.89543 21 2 20.1046 2 19V18C2 16.8954 2.89543 16 4 16H7ZM7 16V8M7 8V4L12 3V7L7 8Z" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button id="voice-toggle-btn" class="header-btn" title="Toggle Voice Commands">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </button>
+        <button id="settings-toggle-btn" class="header-btn" title="Open Settings Panel">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
     <main class="main">
       <div class="score-container">
         <div id="score-display"></div>
         <div id="loading-message" class="message">
-          <h2>Load a MusicXML file</h2>
+          <div class="intro-section">
+            <div class="intro-hero">
+              <svg width="80" height="80" viewBox="0 0 24 24" stroke-width="1.5" fill="none" xmlns="http://www.w3.org/2000/svg" style="color: #4a9eff;">
+                <path d="M15 2.20001C19.5645 3.12655 23 7.16206 23 12C23 16.8379 19.5645 20.8734 15 21.7999" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M15 9C16.1411 9.28364 17 10.519 17 12C17 13.481 16.1411 14.7164 15 15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M1 2L11 2L11 22L1 22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M4 15.5C4 16.3284 3.32843 17 2.5 17C1.67157 17 1 16.3284 1 15.5C1 14.6716 1.67157 14 2.5 14C3.32843 14 4 14.6716 4 15.5ZM4 15.5V7.6C4 7.26863 4.26863 7 4.6 7H7" stroke="currentColor" stroke-linecap="round"/>
+              </svg>
+              <h1>Piano Play Along</h1>
+            </div>
+            <div class="intro-text">
+              <div class="intro-panel">
+                <svg class="intro-panel-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M20 14V3L9 5V16" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M17 19H18C19.1046 19 20 18.1046 20 17V14H17C15.8954 14 15 14.8954 15 16V17C15 18.1046 15.8954 19 17 19Z" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M6 21H7C8.10457 21 9 20.1046 9 19V16H6C4.89543 16 4 16.8954 4 18V19C4 20.1046 4.89543 21 6 21Z" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <h3>MIDI & Keyboard</h3>
+                <p>Connect your MIDI keyboard or use the on-screen keyboard to play along</p>
+              </div>
+              <div class="intro-panel">
+                <svg class="intro-panel-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M2 18V6C2 4.34315 3.34315 3 5 3H7C8.65685 3 10 4.34315 10 6V18C10 19.6569 8.65685 21 7 21H5C3.34315 21 2 19.6569 2 18Z"/>
+                  <path d="M16 3H18C20.2091 3 22 4.79086 22 7V17C22 19.2091 20.2091 21 18 21H16" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M10 12H18M18 12L15 9M18 12L15 15" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <h3>Step Through</h3>
+                <p>The piece advances as you play the correct notes at your own pace</p>
+              </div>
+              <div class="intro-panel">
+                <svg class="intro-panel-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M16 6.27975C16 6.88118 15.7625 7.45883 15.3383 7.88611C14.3619 8.87007 13.415 9.89605 12.4021 10.8443C12.17 11.0585 11.8017 11.0507 11.5795 10.8268L8.6615 7.88611C7.7795 6.99725 7.7795 5.56225 8.6615 4.67339C9.55218 3.77579 11.0032 3.77579 11.8938 4.67339L11.9999 4.78027L12.1059 4.67345C12.533 4.24286 13.1146 4 13.7221 4C14.3297 4 14.9113 4.24284 15.3383 4.67339C15.7625 5.10073 16 5.67835 16 6.27975Z" stroke-linejoin="round"/>
+                  <path d="M18 20L21.8243 16.1757C21.9368 16.0632 22 15.9106 22 15.7515V10.5C22 9.67157 21.3284 9 20.5 9V9C19.6716 9 19 9.67157 19 10.5V15" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M18 16L18.8581 15.1419C18.949 15.051 19 14.9278 19 14.7994V14.7994C19 14.6159 18.8963 14.4482 18.7322 14.3661L18.2893 14.1447C17.5194 13.7597 16.5894 13.9106 15.9807 14.5193L15.0858 15.4142C14.7107 15.7893 14.5 16.298 14.5 16.8284V20" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M6 20L2.17574 16.1757C2.06321 16.0632 2 15.9106 2 15.7515V10.5C2 9.67157 2.67157 9 3.5 9V9C4.32843 9 5 9.67157 5 10.5V15" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M6 16L5.14187 15.1419C5.05103 15.051 5 14.9278 5 14.7994V14.7994C5 14.6159 5.10366 14.4482 5.26776 14.3661L5.71067 14.1447C6.48064 13.7597 7.41059 13.9106 8.01931 14.5193L8.91421 15.4142C9.28929 15.7893 9.5 16.298 9.5 16.8284V20" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <h3>Hand Practice</h3>
+                <p>Practice both hands together, or focus on one while the other plays automatically</p>
+              </div>
+              <div class="intro-panel">
+                <svg class="intro-panel-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <line x1="12" y1="19" x2="12" y2="23" stroke-linecap="round"/>
+                  <line x1="8" y1="23" x2="16" y2="23" stroke-linecap="round"/>
+                </svg>
+                <h3>Voice Commands</h3>
+                <p>Navigate measures and control playback using voice commands</p>
+              </div>
+            </div>
+          </div>
           <div class="score-library">
             <div class="folder">
               <div class="folder-name">Final Fantasy VII Piano Collections</div>
@@ -51,113 +195,138 @@
                 <div class="score-item" data-path="scores/misc/super-mario-bros-ost.mxl">Super Mario Bros Collection</div>
               </div>
             </div>
+            <div class="folder">
+              <div class="folder-name">MuseTrainer Collection</div>
+              <div class="folder-contents">
+                <div class="score-item" data-path="scores/musetrainer/12_Variations_of_Twinkle_Twinkle_Little_Star.mxl">12 Variations of Twinkle Twinkle Little Star</div>
+                <div class="score-item" data-path="scores/musetrainer/Arabesque_L._66_No._1_in_E_Major.mxl">Arabesque L. 66 No. 1 in E Major</div>
+                <div class="score-item" data-path="scores/musetrainer/Ave_Maria_D839_-_Schubert_-_Solo_Piano_Arrg..mxl">Ave Maria D839 - Schubert</div>
+                <div class="score-item" data-path="scores/musetrainer/Bach_Minuet_in_G_Major_BWV_Anh._114.mxl">Bach Minuet in G Major BWV Anh. 114</div>
+                <div class="score-item" data-path="scores/musetrainer/Bach_Toccata_and_Fugue_in_D_Minor_Piano_solo.mxl">Bach Toccata and Fugue in D Minor</div>
+                <div class="score-item" data-path="scores/musetrainer/Beethoven_Symphony_No._5_1st_movement_Piano_solo.mxl">Beethoven Symphony No. 5 1st Movement</div>
+                <div class="score-item" data-path="scores/musetrainer/Bella_Ciao_-_La_Casa_de_Papel.mxl">Bella Ciao - La Casa de Papel</div>
+                <div class="score-item" data-path="scores/musetrainer/Bella_Ciao.mxl">Bella Ciao</div>
+                <div class="score-item" data-path="scores/musetrainer/Canon_in_D_3.mxl">Canon in D (Version 3)</div>
+                <div class="score-item" data-path="scores/musetrainer/Canon_in_D_easy.mxl">Canon in D (Easy)</div>
+                <div class="score-item" data-path="scores/musetrainer/Canon_in_D.mxl">Canon in D</div>
+                <div class="score-item" data-path="scores/musetrainer/Carol_of_the_Bells_easy_piano.mxl">Carol of the Bells (Easy)</div>
+                <div class="score-item" data-path="scores/musetrainer/Carol_of_the_Bells.mxl">Carol of the Bells</div>
+                <div class="score-item" data-path="scores/musetrainer/Chopin_-_Ballade_no._1_in_G_minor_Op._23.mxl">Chopin - Ballade No. 1 in G Minor Op. 23</div>
+                <div class="score-item" data-path="scores/musetrainer/Chopin_-_Nocturne_Op_9_No_2_E_Flat_Major.mxl">Chopin - Nocturne Op. 9 No. 2 E Flat Major</div>
+                <div class="score-item" data-path="scores/musetrainer/Chopin_-_Nocturne_Op._9_No._1.mxl">Chopin - Nocturne Op. 9 No. 1</div>
+                <div class="score-item" data-path="scores/musetrainer/Chopin_-_Spring_Waltz.mxl">Chopin - Spring Waltz</div>
+                <div class="score-item" data-path="scores/musetrainer/Clair_de_Lune__Debussy.mxl">Clair de Lune - Debussy</div>
+                <div class="score-item" data-path="scores/musetrainer/Clair_de_lune_-_Claude_Debussy.mxl">Clair de Lune - Claude Debussy</div>
+                <div class="score-item" data-path="scores/musetrainer/Dance_of_the_sugar_plum_fairy.mxl">Dance of the Sugar Plum Fairy</div>
+                <div class="score-item" data-path="scores/musetrainer/DANSE_VILLAGEOISE_Beethoven.mxl">Danse Villageoise - Beethoven</div>
+                <div class="score-item" data-path="scores/musetrainer/Erik_Satie_-_Gymnopedie_No.1.mxl">Erik Satie - Gymnopedie No. 1</div>
+                <div class="score-item" data-path="scores/musetrainer/Flight_of_the_Bumblebee.mxl">Flight of the Bumblebee</div>
+                <div class="score-item" data-path="scores/musetrainer/Fur_Elise_-_Beethoven_-_for_beginner_piano.mxl">Für Elise - Beethoven (Beginner)</div>
+                <div class="score-item" data-path="scores/musetrainer/Fur_Elise_Easy_Piano.mxl">Für Elise (Easy)</div>
+                <div class="score-item" data-path="scores/musetrainer/Fur_Elise_fingered.mxl">Für Elise (Fingered)</div>
+                <div class="score-item" data-path="scores/musetrainer/Fur_Elise.mxl">Für Elise</div>
+                <div class="score-item" data-path="scores/musetrainer/G_Minor_Bach_Original.mxl">G Minor Bach (Original)</div>
+                <div class="score-item" data-path="scores/musetrainer/G_Minor_Bach.mxl">G Minor Bach</div>
+                <div class="score-item" data-path="scores/musetrainer/Gnossienne_No._1.mxl">Gnossienne No. 1</div>
+                <div class="score-item" data-path="scores/musetrainer/Greensleeves_for_Piano_easy_and_beautiful.mxl">Greensleeves for Piano</div>
+                <div class="score-item" data-path="scores/musetrainer/Gymnopdie_No._1__Satie.mxl">Gymnopédie No. 1 - Satie</div>
+                <div class="score-item" data-path="scores/musetrainer/Happy_Birthday_To_You_C_Major.mxl">Happy Birthday To You (C Major)</div>
+                <div class="score-item" data-path="scores/musetrainer/Happy_Birthday_To_You_Piano.mxl">Happy Birthday To You</div>
+                <div class="score-item" data-path="scores/musetrainer/Hungarian_Dance_No_5_in_G_Minor.mxl">Hungarian Dance No. 5 in G Minor</div>
+                <div class="score-item" data-path="scores/musetrainer/Hungarian_Sonata.mxl">Hungarian Sonata</div>
+                <div class="score-item" data-path="scores/musetrainer/J._S._Bach_-_Air_on_the_G_String_Piano_arrangement.mxl">J. S. Bach - Air on the G String</div>
+                <div class="score-item" data-path="scores/musetrainer/La_Campanella_-_Grandes_Etudes_de_Paganini_No._3_-_Franz_Liszt.mxl">La Campanella - Franz Liszt</div>
+                <div class="score-item" data-path="scores/musetrainer/Lacrimosa_-_Requiem.mxl">Lacrimosa - Requiem</div>
+                <div class="score-item" data-path="scores/musetrainer/Liebestraum_No._3_in_A_Major.mxl">Liebestraum No. 3 in A Major</div>
+                <div class="score-item" data-path="scores/musetrainer/Maple_Leaf_Rag_Scott_Joplin.mxl">Maple Leaf Rag - Scott Joplin</div>
+                <div class="score-item" data-path="scores/musetrainer/Mariage_dAmour.mxl">Mariage d'Amour</div>
+                <div class="score-item" data-path="scores/musetrainer/Minuet_in_G_Major_Bach.mxl">Minuet in G Major - Bach</div>
+                <div class="score-item" data-path="scores/musetrainer/moonlight_sonata_3rd_movement.mxl">Moonlight Sonata 3rd Movement</div>
+                <div class="score-item" data-path="scores/musetrainer/Mozart_-_Piano_Sonata_No._16_-_Allegro.mxl">Mozart - Piano Sonata No. 16 - Allegro</div>
+                <div class="score-item" data-path="scores/musetrainer/Nocturne_in_C_sharp_Minor.mxl">Nocturne in C Sharp Minor</div>
+                <div class="score-item" data-path="scores/musetrainer/Nocturne_in_E-flat_Major_Op._9_No._2_Easy.mxl">Nocturne in E-flat Major Op. 9 No. 2 (Easy)</div>
+                <div class="score-item" data-path="scores/musetrainer/Nocturne_No._20_in_C_Minor.mxl">Nocturne No. 20 in C Minor</div>
+                <div class="score-item" data-path="scores/musetrainer/Ode_to_Joy_Easy_variation.mxl">Ode to Joy (Easy)</div>
+                <div class="score-item" data-path="scores/musetrainer/Passacaglia.mxl">Passacaglia</div>
+                <div class="score-item" data-path="scores/musetrainer/Passacaglia2.mxl">Passacaglia (Version 2)</div>
+                <div class="score-item" data-path="scores/musetrainer/Piano_Sonata_No._11_K._331_3rd_Movement_Rondo_alla_Turca.mxl">Piano Sonata No. 11 K. 331 - Rondo alla Turca</div>
+                <div class="score-item" data-path="scores/musetrainer/Prelude_I_in_C_major_BWV_846_-_Well_Tempered_Clavier_First_Book.mxl">Prelude I in C Major BWV 846</div>
+                <div class="score-item" data-path="scores/musetrainer/Prelude_No._2_BWV_847_in_C_Minor.mxl">Prelude No. 2 BWV 847 in C Minor</div>
+                <div class="score-item" data-path="scores/musetrainer/Prlude_No._4_in_E_Minor_Op._28_-_Frdric_Chopin.mxl">Prélude No. 4 in E Minor Op. 28 - Chopin</div>
+                <div class="score-item" data-path="scores/musetrainer/Prlude_Opus_28_No._4_in_E_Minor__Chopin.mxl">Prélude Opus 28 No. 4 in E Minor - Chopin</div>
+                <div class="score-item" data-path="scores/musetrainer/Schubert_Serenade_-_Standchen_-_By_Lizst.mxl">Schubert Serenade - Ständchen - By Liszt</div>
+                <div class="score-item" data-path="scores/musetrainer/Sonata_No._16_1st_Movement_K._545.mxl">Sonata No. 16 1st Movement K. 545</div>
+                <div class="score-item" data-path="scores/musetrainer/Sonate_No._14_Moonlight_1st_Movement.mxl">Sonate No. 14 Moonlight 1st Movement</div>
+                <div class="score-item" data-path="scores/musetrainer/Sonate_No._14_Moonlight_3rd_Movement.mxl">Sonate No. 14 Moonlight 3rd Movement</div>
+                <div class="score-item" data-path="scores/musetrainer/Sonate_No._8_Pathetique_2nd_Movement.mxl">Sonate No. 8 Pathétique 2nd Movement</div>
+                <div class="score-item" data-path="scores/musetrainer/Spring_Waltz_Mariage_dAmour_-_Chopin.mxl">Spring Waltz Mariage d'Amour - Chopin</div>
+                <div class="score-item" data-path="scores/musetrainer/Swan_Lake.mxl">Swan Lake</div>
+                <div class="score-item" data-path="scores/musetrainer/The_Entertainer_-_Scott_Joplin_-_1902.mxl">The Entertainer - Scott Joplin (1902)</div>
+                <div class="score-item" data-path="scores/musetrainer/The_Entertainer_-_Scott_Joplin.mxl">The Entertainer - Scott Joplin</div>
+                <div class="score-item" data-path="scores/musetrainer/WA_Mozart_Marche_Turque_Turkish_March_fingered.mxl">W.A. Mozart Marche Turque (Turkish March)</div>
+                <div class="score-item" data-path="scores/musetrainer/Waltz_in_A_MinorChopin.mxl">Waltz in A Minor - Chopin</div>
+                <div class="score-item" data-path="scores/musetrainer/Waltz_of_the_Flowers.mxl">Waltz of the Flowers</div>
+                <div class="score-item" data-path="scores/musetrainer/Waltz_Opus_64_No._2_in_C_Minor.mxl">Waltz Opus 64 No. 2 in C Minor</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="practice-panel">
-        <button id="toggle-panel-btn" class="toggle-panel-btn">◀</button>
-        
-        <div class="panel-content">
-          <h1>Piano Play Along</h1>
+      <div class="settings-panel" id="settings-panel">
+        <div class="settings-panel-content">
+          <h3>Settings</h3>
           
-          <div class="file-controls">
-            <button id="load-file-btn" class="btn btn-primary">Upload MusicXML</button>
-            <button id="clear-file-btn" class="btn" style="display: none;">Close Score</button>
+          <div class="setting-row">
+            <label>MIDI Device</label>
+            <select id="midi-device-select" class="select" disabled>
+              <option value="">No MIDI device</option>
+            </select>
           </div>
 
-          <div class="settings-section">
-            <h3>Settings</h3>
-            <div class="settings-content">
-              <div class="setting-item">
-                <label for="midi-device-select">MIDI Device</label>
-                <select id="midi-device-select" class="select" disabled>
-                  <option value="">No MIDI device</option>
-                </select>
-              </div>
-              <div class="setting-item">
-                <label for="practice-mode-select">Practice Mode</label>
-                <select id="practice-mode-select" class="select">
-                  <option value="both">Both Hands</option>
-                  <option value="right">Right Hand Only</option>
-                  <option value="left">Left Hand Only</option>
-                </select>
-              </div>
-              <div class="setting-item">
-                <label for="zoom-select">Score Zoom</label>
-                <select id="zoom-select" class="select">
-                  <option value="0.8">X. Small</option>
-                  <option value="1.0">Small</option>
-                  <option value="1.25" selected>Normal</option>
-                  <option value="1.5">Large</option>
-                  <option value="1.75">X. Large</option>
-                </select>
-              </div>
-              <div class="setting-item">
-                <label for="keyboard-size-select">Keyboard Size</label>
-                <select id="keyboard-size-select" class="select">
-                  <option value="100" selected>Normal</option>
-                  <option value="135">Large</option>
-                  <option value="0">Hide</option>
-                </select>
-              </div>
-              <div class="setting-item">
-                <label for="show-note-names">Show Note Names</label>
-                <input type="checkbox" id="show-note-names">
-              </div>
-            </div>
-          </div>
-          <div class="practice-controls">
-          <button id="play-btn" class="btn btn-primary" disabled>Play</button>
-          <button id="reset-btn" class="btn" disabled>Back to Start</button>
+          <div class="setting-row">
+            <label>Score Zoom</label>
+            <select id="zoom-select" class="select">
+              <option value="0.8">X. Small</option>
+              <option value="1.0">Small</option>
+              <option value="1.25" selected>Normal</option>
+              <option value="1.5">Large</option>
+              <option value="1.75">X. Large</option>
+            </select>
           </div>
 
-          <div class="tempo-control">
-            <label for="tempo-slider">Playback Speed: <span id="tempo-value">1.0x</span></label>
-            <input type="range" id="tempo-slider" min="0.25" max="1.5" step="0.05" value="1.0">
+          <div class="setting-row">
+            <label>Keyboard</label>
+            <select id="keyboard-size-select" class="select">
+              <option value="100">Normal</option>
+              <option value="135" selected>Large</option>
+              <option value="0">Hide</option>
+            </select>
           </div>
 
-          <div class="status-panel">
-          <div class="status-item">
-            <span class="label">Measure:</span>
-            <span id="current-measure">-</span>
-          </div>
-          <div class="status-item">
-            <span class="label">Progress:</span>
-            <span id="progress">0%</span>
-          </div>
-          <div class="status-item">
-            <span class="label">Next Notes:</span>
-            <span id="next-notes">-</span>
-          </div>
-          <div class="status-item">
-            <span class="label">Tempo:</span>
-            <span id="current-tempo">-</span>
-          </div>
-          </div>
-
-          <div class="midi-status">
-          <div class="status-indicator" id="midi-status">
-            <span class="dot"></span>
-            <span id="midi-status-text">MIDI: Not connected</span>
-          </div>
-          <div class="status-indicator" id="voice-status">
-            <span class="dot"></span>
-            <span id="voice-status-text">Voice: Listening</span>
-          </div>
-          </div>
-
-          <div class="voice-commands">
           <h3>Voice Commands</h3>
-          <ul>
-            <li><strong>measure 4 / bar 4</strong> - jump to measure</li>
-            <li><strong>back</strong> - previous measure</li>
-            <li><strong>forward</strong> - next measure</li>
-            <li><strong>start</strong> - back to start</li>
-            <li><strong>left hand / right hand / both hands</strong> - change mode</li>
-            <li><strong>mute</strong> - ignore commands</li>
-            <li><strong>unmute</strong> - listen again</li>
-          </ul>
+          
+          <div class="voice-commands-list">
+            <div class="voice-command-item">
+              <span class="voice-command-trigger">measure 4<br/>bar 4</span>
+              <span class="voice-command-desc">jump to measure</span>
+            </div>
+            <div class="voice-command-item">
+              <span class="voice-command-trigger">next<br/>back</span>
+              <span class="voice-command-desc">navigate measures</span>
+            </div>
+            <div class="voice-command-item">
+              <span class="voice-command-trigger">start</span>
+              <span class="voice-command-desc">back to start</span>
+            </div>
+            <div class="voice-command-item">
+              <span class="voice-command-trigger">both hands<br/>right hand<br/>left hand</span>
+              <span class="voice-command-desc">change mode</span>
+            </div>
+            <div class="voice-command-item">
+              <span class="voice-command-trigger">play<br/>stop</span>
+              <span class="voice-command-desc">playback control</span>
+            </div>
           </div>
         </div>
       </div>

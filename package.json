@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Interactive music practice app with MIDI keyboard support",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dangarfield/piano-play-along.git"
+  },
+  "homepage": "https://github.com/dangarfield/piano-play-along",
+  "bugs": {
+    "url": "https://github.com/dangarfield/piano-play-along/issues"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",

@@ -35,6 +35,12 @@ export class ScoreRenderer {
       backend: 'svg',
       drawTitle: true,
       drawingParameters: 'default',
+      cursorsOptions: [{
+        type: 0,
+        color: '#4a9eff',
+        alpha: 0.5,
+        follow: false
+      }]
     });
 
     // Enable note names in noteheads
@@ -83,6 +89,13 @@ export class ScoreRenderer {
 
     // Initialize cursor
     this.osmd.cursor.show();
+    this.osmd.cursor.CursorOptions = {
+      type: 0,
+      color: '#4a9eff',
+      alpha: 0.5,
+      follow: false
+    };
+    this.osmd.cursor.update();
     
     // Draw note names on top of notes (after rendering and cursor)
     this.drawNoteNames();
@@ -382,6 +395,11 @@ export class ScoreRenderer {
 
   getUseFlats(): boolean {
     return this.useFlats;
+  }
+
+  getTitle(): string {
+    if (!this.osmd || !this.osmd.sheet) return '';
+    return this.osmd.sheet.TitleString || '';
   }
 
   private midiToNoteName(midiNote: number): string {

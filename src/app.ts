@@ -11,7 +11,7 @@ import * as Tone from 'tone';
 interface AppConfig {
   practiceMode: PracticeMode;
   zoomLevel: number;
-  voiceCommandsMuted: boolean;
+  voiceCommandsEnabled: boolean;
   keyboardSize: number;
   showNoteNames: boolean;
   tempoMultiplier: number;
@@ -50,8 +50,8 @@ class App {
     return {
       practiceMode: 'both',
       zoomLevel: 1.25,
-      voiceCommandsMuted: false,
-      keyboardSize: 100,
+      voiceCommandsEnabled: true,
+      keyboardSize: 135,
       showNoteNames: false,
       tempoMultiplier: 1.0,
     };
@@ -116,6 +116,13 @@ class App {
 
     this.keyboard = new SimpleKeyboard(container);
     
+    // Ensure keyboard container is hidden on init
+    const keyboardContainer = document.querySelector('.keyboard-container') as HTMLElement;
+    if (keyboardContainer) {
+      keyboardContainer.style.display = 'none';
+      console.log('initializeKeyboard: Set keyboard display to none');
+    }
+    
     // Set up keyboard click handler to emulate MIDI
     this.keyboard.onNoteClick((note) => {
       console.log('Keyboard note click callback:', note);
@@ -150,6 +157,13 @@ class App {
       this.midiHandler.onDeviceChange((devices) => {
         console.log('MIDI devices detected:', devices);
         this.updateMidiDeviceList(devices);
+        
+        // Show toast notification
+        if (devices.length > 0) {
+          this.showToast(`✓ MIDI device connected: ${devices[0].name}`);
+        } else {
+          this.showToast('⚠ No MIDI devices found');
+        }
       });
 
       this.midiHandler.onNoteOn((note, velocity) => {
@@ -187,13 +201,38 @@ class App {
         const currentGroup = state.score[state.currentNoteGroupIndex];
         const tempo = currentGroup?.tempo || 120;
         
-        this.uiController.updateStatus(
-          this.practiceEngine.getCurrentMeasure(),
-          this.practiceEngine.getProgress(),
-          expectedNotes,
-          tempo
-        );
-        this.uiController.updatePlayPauseButtons(state.isPlaying);
+        // Update header info
+        const headerRightNotes = document.getElementById('header-right-notes');
+        const headerLeftNotes = document.getElementById('header-left-notes');
+        
+        if (headerRightNotes && headerLeftNotes) {
+          const currentGroup = state.score[state.currentNoteGroupIndex];
+          if (currentGroup && currentGroup.notes.length > 0) {
+            const sharpNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+            const flatNames = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+            const useFlats = this.scoreRenderer.getUseFlats();
+            const noteNames = useFlats ? flatNames : sharpNames;
+            
+            // Split notes by hand property
+            const rightHandNotes = currentGroup.notes.filter(n => n.hand === 'right' && !n.isRest).map(n => n.pitch);
+            const leftHandNotes = currentGroup.notes.filter(n => n.hand === 'left' && !n.isRest).map(n => n.pitch);
+            
+            const formatNotes = (notes: number[]) => {
+              if (notes.length === 0) return '-';
+              return notes.sort((a, b) => a - b).map(n => {
+                const octave = Math.floor(n / 12) - 1;
+                const noteName = noteNames[n % 12];
+                return `${noteName}${octave}`;
+              }).join(', ');
+            };
+            
+            headerRightNotes.textContent = formatNotes(rightHandNotes);
+            headerLeftNotes.textContent = formatNotes(leftHandNotes);
+          } else {
+            headerRightNotes.textContent = '-';
+            headerLeftNotes.textContent = '-';
+          }
+        }
         
         // Move cursor to current position
         this.scoreRenderer.moveCursorToNoteGroup(state.currentNoteGroupIndex);
@@ -245,43 +284,212 @@ class App {
   }
 
   private setupEventListeners(): void {
-    // Panel toggle
-    const togglePanelBtn = document.getElementById('toggle-panel-btn');
-    const practicePanel = document.querySelector('.practice-panel');
+    const config = this.getConfig();
     
-    togglePanelBtn?.addEventListener('click', () => {
-      const isCollapsed = practicePanel?.classList.toggle('collapsed');
-      if (togglePanelBtn) {
-        togglePanelBtn.textContent = isCollapsed ? '▶' : '◀';
+    // Header: Close button
+    document.getElementById('close-score-btn')?.addEventListener('click', () => {
+      if (this.playbackEngine.getIsPlaying()) {
+        this.playbackEngine.stop();
       }
-      
-      // Re-render score after panel animation completes
-      setTimeout(() => {
-        this.scoreRenderer.render();
-        this.scoreRenderer.scrollCursorIntoView();
-      }, 300);
+      this.clearScore();
     });
+    
+    // List header: Upload button
+    const uploadScoreBtn = document.getElementById('upload-score-btn');
+    const fileInput = document.getElementById('file-input') as HTMLInputElement;
+    uploadScoreBtn?.addEventListener('click', () => {
+      fileInput?.click();
+    });
+    
+    fileInput?.addEventListener('change', async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        await this.loadScore(file);
+        // Reset file input so same file can be selected again
+        fileInput.value = '';
+      }
+    });
+    
+    // Header: Play/Stop button
+    const headerPlayBtn = document.getElementById('header-play-btn');
+    headerPlayBtn?.addEventListener('click', () => {
+      if (this.playbackEngine.getIsPlaying()) {
+        this.playbackEngine.stop();
+        if (headerPlayBtn) {
+          headerPlayBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>';
+          headerPlayBtn.classList.remove('active');
+        }
+        this.practiceEngine.start();
+      } else {
+        const currentIndex = this.practiceEngine.getState().currentNoteGroupIndex;
+        this.practiceEngine.pause();
+        this.playbackEngine.play(currentIndex);
+        if (headerPlayBtn) {
+          headerPlayBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+          headerPlayBtn.classList.add('active');
+        }
+      }
+    });
+    
+    // Header: Reset button
+    document.getElementById('header-reset-btn')?.addEventListener('click', () => {
+      this.practiceEngine.reset();
+      this.scoreRenderer.resetCursor();
+      this.practiceEngine.start();
+      if (this.playbackEngine.getIsPlaying()) {
+        this.playbackEngine.stop();
+        const headerPlayBtn = document.getElementById('header-play-btn');
+        if (headerPlayBtn) {
+          headerPlayBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>';
+          headerPlayBtn.classList.remove('active');
+        }
+      }
+    });
+    
+    // Header: Tempo slider
+    const headerTempoSlider = document.getElementById('header-tempo-slider') as HTMLInputElement;
+    const headerTempoValue = document.getElementById('header-tempo-value');
+    if (headerTempoSlider && headerTempoValue) {
+      headerTempoSlider.value = config.tempoMultiplier.toString();
+      headerTempoValue.textContent = config.tempoMultiplier === 1.0 ? '1x' : `${config.tempoMultiplier.toFixed(1)}x`;
+      this.playbackEngine.setTempoMultiplier(config.tempoMultiplier);
+      
+      headerTempoSlider.addEventListener('input', (e) => {
+        const multiplier = parseFloat((e.target as HTMLInputElement).value);
+        if (headerTempoValue) {
+          headerTempoValue.textContent = multiplier === 1.0 ? '1x' : `${multiplier.toFixed(1)}x`;
+        }
+        this.playbackEngine.setTempoMultiplier(multiplier);
+        this.saveConfig({ tempoMultiplier: multiplier });
+      });
+    }
+    
+    // Header: Practice mode
+    const headerPracticeMode = document.getElementById('header-practice-mode') as HTMLSelectElement;
+    if (headerPracticeMode) {
+      headerPracticeMode.value = config.practiceMode;
+      this.practiceEngine.setPracticeMode(config.practiceMode);
+      
+      headerPracticeMode.addEventListener('change', (e) => {
+        const mode = (e.target as HTMLSelectElement).value as PracticeMode;
+        this.practiceEngine.setPracticeMode(mode);
+        this.saveConfig({ practiceMode: mode });
+      });
+    }
+    
+    // Header: Show note names button
+    const headerShowNotesBtn = document.getElementById('header-show-notes-btn');
+    if (headerShowNotesBtn) {
+      if (config.showNoteNames) {
+        headerShowNotesBtn.classList.add('active');
+      }
+      this.scoreRenderer.setShowNoteNames(config.showNoteNames);
+      
+      headerShowNotesBtn.addEventListener('click', () => {
+        const show = !this.getConfig().showNoteNames;
+        this.scoreRenderer.setShowNoteNames(show);
+        this.saveConfig({ showNoteNames: show });
+        headerShowNotesBtn.classList.toggle('active', show);
+        this.showToast(show ? 'Note names shown' : 'Note names hidden');
+      });
+    }
+    
+    // Header: Voice toggle button
+    const voiceToggleBtn = document.getElementById('voice-toggle-btn');
+    if (voiceToggleBtn) {
+      voiceToggleBtn.classList.toggle('active', config.voiceCommandsEnabled);
+      
+      voiceToggleBtn.addEventListener('click', () => {
+        const enabled = !this.getConfig().voiceCommandsEnabled;
+        this.saveConfig({ voiceCommandsEnabled: enabled });
+        voiceToggleBtn.classList.toggle('active', enabled);
+        this.showToast(enabled ? 'Voice commands enabled' : 'Voice commands disabled');
+      });
+    }
+    
+    // Header: Settings toggle button
+    const settingsToggleBtn = document.getElementById('settings-toggle-btn');
+    const settingsPanel = document.getElementById('settings-panel');
+    settingsToggleBtn?.addEventListener('click', () => {
+      const isOpen = settingsPanel?.classList.toggle('open');
+      settingsToggleBtn.classList.toggle('active', isOpen);
+    });
+    
+    // Settings panel: MIDI device
+    const midiSelect = document.getElementById('midi-device-select') as HTMLSelectElement;
+    midiSelect?.addEventListener('change', (e) => {
+      const deviceId = (e.target as HTMLSelectElement).value;
+      if (deviceId) {
+        this.midiHandler.selectDevice(deviceId);
+        const devices = this.midiHandler.getAvailableDevices();
+        const device = devices.find(d => d.id === deviceId);
+        this.showToast(`MIDI: ${device?.name}`);
+      }
+    });
+    
+    // Settings panel: Zoom
+    const zoomSelect = document.getElementById('zoom-select') as HTMLSelectElement;
+    if (zoomSelect) {
+      zoomSelect.value = config.zoomLevel.toString();
+      
+      zoomSelect.addEventListener('change', (e) => {
+        const zoom = parseFloat((e.target as HTMLSelectElement).value);
+        this.scoreRenderer.setZoom(zoom);
+        this.saveConfig({ zoomLevel: zoom });
+      });
+    }
+    
+    // Settings panel: Keyboard size
+    const keyboardSizeSelect = document.getElementById('keyboard-size-select') as HTMLSelectElement;
+    
+    if (keyboardSizeSelect) {
+      keyboardSizeSelect.value = config.keyboardSize.toString();
+      // Don't call setKeyboardSize on init - keyboard should only show when score is loaded
+      
+      keyboardSizeSelect.addEventListener('change', (e) => {
+        const size = parseInt((e.target as HTMLSelectElement).value);
+        this.setKeyboardSize(size);
+        this.saveConfig({ keyboardSize: size });
+      });
+    }
     
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-      // Ignore if typing in an input/select
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) {
         return;
       }
       
-      if (e.key === 'ArrowRight') {
+      if (e.key === ' ') {
+        e.preventDefault();
+        if (this.playbackEngine.getIsPlaying()) {
+          this.playbackEngine.stop();
+          const headerPlayBtn = document.getElementById('header-play-btn');
+          if (headerPlayBtn) {
+            headerPlayBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>';
+            headerPlayBtn.classList.remove('active');
+          }
+          this.practiceEngine.start();
+        } else {
+          const currentIndex = this.practiceEngine.getState().currentNoteGroupIndex;
+          this.practiceEngine.pause();
+          this.playbackEngine.play(currentIndex);
+          const headerPlayBtn = document.getElementById('header-play-btn');
+          if (headerPlayBtn) {
+            headerPlayBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+            headerPlayBtn.classList.add('active');
+          }
+        }
+      } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         const state = this.practiceEngine.getState();
         
         if (e.ctrlKey || e.metaKey) {
-          // Ctrl+Right: Next measure
           const currentMeasure = state.score[state.currentNoteGroupIndex]?.measureIndex;
           if (currentMeasure !== undefined) {
             const nextMeasure = currentMeasure + 1;
             const targetIndex = state.score.findIndex(group => group.measureIndex === nextMeasure);
             if (targetIndex !== -1) {
               this.practiceEngine.jumpToNoteGroup(targetIndex);
-              // Play the note group
               const noteGroup = state.score[targetIndex];
               if (noteGroup) {
                 this.soundHandler.playNoteGroup(noteGroup);
@@ -289,11 +497,9 @@ class App {
             }
           }
         } else {
-          // Right: Next note group
           const nextIndex = state.currentNoteGroupIndex + 1;
           if (nextIndex < state.score.length) {
             this.practiceEngine.jumpToNoteGroup(nextIndex);
-            // Play the note group
             const noteGroup = state.score[nextIndex];
             if (noteGroup) {
               this.soundHandler.playNoteGroup(noteGroup);
@@ -305,20 +511,16 @@ class App {
         const state = this.practiceEngine.getState();
         
         if (e.ctrlKey || e.metaKey) {
-          // Ctrl+Left: Start of current measure or previous measure
           const currentMeasure = state.score[state.currentNoteGroupIndex]?.measureIndex;
           if (currentMeasure !== undefined) {
-            // Find first note group in current measure
             const currentMeasureStart = state.score.findIndex(group => group.measureIndex === currentMeasure);
             
-            // If already at start of measure, go to previous measure
             if (state.currentNoteGroupIndex === currentMeasureStart) {
               const prevMeasure = currentMeasure - 1;
               if (prevMeasure >= 0) {
                 const targetIndex = state.score.findIndex(group => group.measureIndex === prevMeasure);
                 if (targetIndex !== -1) {
                   this.practiceEngine.jumpToNoteGroup(targetIndex);
-                  // Play the note group
                   const noteGroup = state.score[targetIndex];
                   if (noteGroup) {
                     this.soundHandler.playNoteGroup(noteGroup);
@@ -326,9 +528,7 @@ class App {
                 }
               }
             } else {
-              // Go to start of current measure
               this.practiceEngine.jumpToNoteGroup(currentMeasureStart);
-              // Play the note group
               const noteGroup = state.score[currentMeasureStart];
               if (noteGroup) {
                 this.soundHandler.playNoteGroup(noteGroup);
@@ -336,11 +536,9 @@ class App {
             }
           }
         } else {
-          // Left: Previous note group
           const prevIndex = state.currentNoteGroupIndex - 1;
           if (prevIndex >= 0) {
             this.practiceEngine.jumpToNoteGroup(prevIndex);
-            // Play the note group
             const noteGroup = state.score[prevIndex];
             if (noteGroup) {
               this.soundHandler.playNoteGroup(noteGroup);
@@ -348,151 +546,6 @@ class App {
           }
         }
       }
-    });
-    
-    // Load file button
-    const loadFileBtn = document.getElementById('load-file-btn');
-    const fileInput = document.getElementById('file-input') as HTMLInputElement;
-    
-    loadFileBtn?.addEventListener('click', () => {
-      fileInput?.click();
-    });
-
-    fileInput?.addEventListener('change', async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        await this.loadScore(file);
-      }
-    });
-
-    // MIDI device selector
-    const midiSelect = document.getElementById('midi-device-select') as HTMLSelectElement;
-    midiSelect?.addEventListener('change', (e) => {
-      const deviceId = (e.target as HTMLSelectElement).value;
-      if (deviceId) {
-        this.midiHandler.selectDevice(deviceId);
-        const devices = this.midiHandler.getAvailableDevices();
-        const device = devices.find(d => d.id === deviceId);
-        this.uiController.updateMidiStatus(true, device?.name);
-      } else {
-        this.uiController.updateMidiStatus(false);
-      }
-    });
-
-    // Practice mode selector
-    const practiceModeSelect = document.getElementById('practice-mode-select') as HTMLSelectElement;
-    
-    // Load saved practice mode
-    const config = this.getConfig();
-    if (practiceModeSelect) {
-      practiceModeSelect.value = config.practiceMode;
-      this.practiceEngine.setPracticeMode(config.practiceMode);
-    }
-    
-    practiceModeSelect?.addEventListener('change', (e) => {
-      const mode = (e.target as HTMLSelectElement).value as PracticeMode;
-      this.practiceEngine.setPracticeMode(mode);
-      this.saveConfig({ practiceMode: mode });
-    });
-
-    // Zoom selector
-    const zoomSelect = document.getElementById('zoom-select') as HTMLSelectElement;
-    
-    // Load saved zoom level - ensure it matches option values
-    if (zoomSelect) {
-      const zoomValue = config.zoomLevel.toString();
-      zoomSelect.value = zoomValue;
-    }
-    
-    zoomSelect?.addEventListener('change', (e) => {
-      const zoom = parseFloat((e.target as HTMLSelectElement).value);
-      this.scoreRenderer.setZoom(zoom);
-      this.saveConfig({ zoomLevel: zoom });
-    });
-
-    // Keyboard size selector
-    const keyboardSizeSelect = document.getElementById('keyboard-size-select') as HTMLSelectElement;
-    
-    // Load saved keyboard size
-    const keyboardSize = config.keyboardSize ?? 100;
-    if (keyboardSizeSelect) {
-      keyboardSizeSelect.value = keyboardSize.toString();
-      this.setKeyboardSize(keyboardSize);
-    }
-    
-    keyboardSizeSelect?.addEventListener('change', (e) => {
-      const size = parseInt((e.target as HTMLSelectElement).value);
-      this.setKeyboardSize(size);
-      this.saveConfig({ keyboardSize: size });
-    });
-
-    // Show note names checkbox
-    const showNoteNamesCheckbox = document.getElementById('show-note-names') as HTMLInputElement;
-    
-    // Load saved setting
-    if (showNoteNamesCheckbox) {
-      showNoteNamesCheckbox.checked = config.showNoteNames;
-      this.scoreRenderer.setShowNoteNames(config.showNoteNames);
-    }
-    
-    showNoteNamesCheckbox?.addEventListener('change', (e) => {
-      const show = (e.target as HTMLInputElement).checked;
-      this.scoreRenderer.setShowNoteNames(show);
-      this.saveConfig({ showNoteNames: show });
-    });
-
-    // Tempo slider
-    const tempoSlider = document.getElementById('tempo-slider') as HTMLInputElement;
-    const tempoValue = document.getElementById('tempo-value') as HTMLSpanElement;
-    
-    // Load saved tempo
-    if (tempoSlider && tempoValue) {
-      const savedTempo = config.tempoMultiplier ?? 1.0;
-      tempoSlider.value = savedTempo.toString();
-      tempoValue.textContent = `${savedTempo.toFixed(2)}x`;
-      this.playbackEngine.setTempoMultiplier(savedTempo);
-    }
-    
-    tempoSlider?.addEventListener('input', (e) => {
-      const multiplier = parseFloat((e.target as HTMLInputElement).value);
-      if (tempoValue) {
-        tempoValue.textContent = `${multiplier.toFixed(2)}x`;
-      }
-      this.playbackEngine.setTempoMultiplier(multiplier);
-      this.saveConfig({ tempoMultiplier: multiplier });
-    });
-
-    // Control buttons
-    document.getElementById('play-btn')?.addEventListener('click', () => {
-      if (this.playbackEngine.getIsPlaying()) {
-        this.playbackEngine.stop();
-        this.uiController.updatePlayButton(false);
-        // Re-enable practice mode
-        this.practiceEngine.start();
-      } else {
-        const currentIndex = this.practiceEngine.getState().currentNoteGroupIndex;
-        // Pause practice mode during playback
-        this.practiceEngine.pause();
-        this.playbackEngine.play(currentIndex);
-        this.uiController.updatePlayButton(true);
-      }
-    });
-
-    document.getElementById('reset-btn')?.addEventListener('click', () => {
-      this.practiceEngine.reset();
-      this.scoreRenderer.resetCursor();
-      this.practiceEngine.start();
-      
-      // Stop playback if playing
-      if (this.playbackEngine.getIsPlaying()) {
-        this.playbackEngine.stop();
-        this.uiController.updatePlayButton(false);
-      }
-    });
-
-    // Clear score button
-    document.getElementById('clear-file-btn')?.addEventListener('click', () => {
-      this.clearScore();
     });
   }
 
@@ -522,11 +575,33 @@ class App {
 
   private async loadScore(file: File): Promise<void> {
     try {
-      this.uiController.showMessage('Loading score...');
+      console.log('loadScore: Starting...');
       
       // Hide score library
       const loadingMessage = document.getElementById('loading-message');
       if (loadingMessage) loadingMessage.style.display = 'none';
+      console.log('loadScore: Hidden loading message');
+      
+      // Show header
+      const header = document.getElementById('score-header');
+      if (header) header.style.display = 'flex';
+      console.log('loadScore: Shown header');
+      
+      // Show loading message in score container (parent of score-display)
+      let scoreContainer = document.querySelector('.score-container') as HTMLElement;
+      console.log('loadScore: scoreContainer element:', scoreContainer);
+      if (scoreContainer) {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'score-loading-overlay';
+        loadingDiv.style.cssText = 'position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; background: #ffffff; color: #999; font-size: 1.2rem; z-index: 1000;';
+        loadingDiv.textContent = 'Loading score...';
+        scoreContainer.appendChild(loadingDiv);
+        console.log('loadScore: Added loading overlay');
+      }
+      
+      // Wait for UI to update
+      await new Promise(resolve => setTimeout(resolve, 100));
+      console.log('loadScore: Waited 100ms for UI update');
       
       // For .mxl files, we need to store the binary data
       let content: string;
@@ -548,7 +623,17 @@ class App {
       this.scoreRenderer.setZoom(config.zoomLevel);
       this.scoreRenderer.setShowNoteNames(config.showNoteNames);
       
+      console.log('loadScore: About to call scoreRenderer.loadScore');
       await this.scoreRenderer.loadScore(file);
+      console.log('loadScore: scoreRenderer.loadScore completed');
+      
+      // Remove loading overlay
+      const loadingOverlay = document.getElementById('score-loading-overlay');
+      if (loadingOverlay) {
+        loadingOverlay.remove();
+        console.log('loadScore: Removed loading overlay');
+      }
+      
       const noteGroups = this.scoreRenderer.getNoteGroups();
       const tempo = this.scoreRenderer.getTempo();
       
@@ -565,13 +650,20 @@ class App {
       this.keyboard.setUseFlats(this.scoreRenderer.getUseFlats());
       this.uiController.setUseFlats(this.scoreRenderer.getUseFlats());
       
-      this.uiController.hideMessage();
-      this.uiController.enableControls(true);
-      this.uiController.updateStatus(1, 0, [], this.scoreRenderer.getTempo());
+      // Update header title
+      const headerTitle = document.getElementById('header-score-title');
+      if (headerTitle) {
+        const title = this.scoreRenderer.getTitle();
+        headerTitle.textContent = title || file.name.replace(/\.(xml|musicxml|mxl)$/i, '');
+      }
       
-      // Show clear button
-      const clearBtn = document.getElementById('clear-file-btn');
-      if (clearBtn) clearBtn.style.display = 'block';
+      // Show keyboard after successful load with saved size
+      this.setKeyboardSize(config.keyboardSize);
+      
+      scoreContainer = document.querySelector('.score-container') as HTMLElement;
+      if (scoreContainer && config.keyboardSize > 0) scoreContainer.classList.add('with-keyboard');
+      
+      this.uiController.hideMessage();
       
       // Auto-start
       this.practiceEngine.start();
@@ -593,22 +685,43 @@ class App {
         if (Tone.getContext().state !== 'running') {
           if (audioOverlay) {
             audioOverlay.style.display = 'flex';
-            // Wait for user to click
+            // Wait for user to click anywhere
             await new Promise<void>((resolve) => {
-              const enableAudioBtn = document.getElementById('enable-audio-btn');
               const handler = async () => {
                 await Tone.start();
                 console.log('Audio context started');
                 audioOverlay.style.display = 'none';
-                enableAudioBtn?.removeEventListener('click', handler);
+                audioOverlay.removeEventListener('click', handler);
                 resolve();
               };
-              enableAudioBtn?.addEventListener('click', handler);
+              audioOverlay.addEventListener('click', handler);
             });
           }
         }
         
-        this.uiController.showMessage('Loading saved score...');
+        // Hide score library
+        const loadingMessage = document.getElementById('loading-message');
+        if (loadingMessage) loadingMessage.style.display = 'none';
+        
+        // Hide list header and show score header
+        const listHeader = document.getElementById('list-header');
+        if (listHeader) listHeader.style.display = 'none';
+        
+        const scoreHeader = document.getElementById('score-header');
+        if (scoreHeader) scoreHeader.style.display = 'flex';
+        
+        const scoreContainer = document.querySelector('.score-container') as HTMLElement;
+        if (scoreContainer) {
+          // Show loading message in score container (parent of score-display)
+          const loadingDiv = document.createElement('div');
+          loadingDiv.id = 'score-loading-overlay';
+          loadingDiv.style.cssText = 'position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; background: #ffffff; color: #999; font-size: 1.2rem; z-index: 1000;';
+          loadingDiv.textContent = 'Loading score...';
+          scoreContainer.appendChild(loadingDiv);
+        }
+        
+        // Wait for UI to update
+        await new Promise(resolve => setTimeout(resolve, 100));
         
         // Create a File object from saved content
         let file: File;
@@ -637,6 +750,17 @@ class App {
         const noteGroups = this.scoreRenderer.getNoteGroups();
         const tempo = this.scoreRenderer.getTempo();
         
+        // Remove loading overlay
+        const loadingOverlay = document.getElementById('score-loading-overlay');
+        if (loadingOverlay) {
+          loadingOverlay.remove();
+        }
+        
+        // Show keyboard after successful load with saved size
+        this.setKeyboardSize(config.keyboardSize);
+        
+        if (scoreContainer && config.keyboardSize > 0) scoreContainer.classList.add('with-keyboard');
+        
         this.practiceEngine.loadScore(noteGroups);
         this.playbackEngine.loadScore(noteGroups);
         this.playbackEngine.setTempo(tempo);
@@ -645,13 +769,14 @@ class App {
         this.keyboard.setUseFlats(this.scoreRenderer.getUseFlats());
         this.uiController.setUseFlats(this.scoreRenderer.getUseFlats());
         
-        this.uiController.hideMessage();
-        this.uiController.enableControls(true);
-        this.uiController.updateStatus(1, 0, [], this.scoreRenderer.getTempo());
+        // Update header title
+        const headerTitle = document.getElementById('header-score-title');
+        if (headerTitle) {
+          const title = this.scoreRenderer.getTitle();
+          headerTitle.textContent = title || 'Saved Score';
+        }
         
-        // Show clear button
-        const clearBtn = document.getElementById('clear-file-btn');
-        if (clearBtn) clearBtn.style.display = 'block';
+        this.uiController.hideMessage();
         
         // Set up note click handler
         this.scoreRenderer.onNoteClick((index) => {
@@ -676,19 +801,42 @@ class App {
     // Clear UI
     this.scoreRenderer.dispose();
     this.practiceEngine.reset();
-    this.uiController.showMessage('Load a MusicXML file to begin');
     this.uiController.enableControls(false);
     this.keyboard.clearHighlights();
     
-    // Hide clear button
-    const clearBtn = document.getElementById('clear-file-btn');
-    if (clearBtn) clearBtn.style.display = 'none';
+    // Hide score header and show list header
+    const scoreHeader = document.getElementById('score-header');
+    if (scoreHeader) scoreHeader.style.display = 'none';
+    
+    const listHeader = document.getElementById('list-header');
+    if (listHeader) listHeader.style.display = 'flex';
+    
+    // Hide keyboard
+    this.setKeyboardSize(0);
+    
+    const scoreContainer = document.querySelector('.score-container') as HTMLElement;
+    if (scoreContainer) scoreContainer.classList.remove('with-keyboard');
+    
+    const settingsPanel = document.getElementById('settings-panel');
+    if (settingsPanel) settingsPanel.classList.remove('open');
     
     // Show score library
     const loadingMessage = document.getElementById('loading-message');
     if (loadingMessage) loadingMessage.style.display = 'block';
     
     console.log('Score cleared');
+  }
+
+  private showToast(message: string, duration: number = 3000): void {
+    const toast = document.getElementById('toast');
+    if (!toast) return;
+    
+    toast.textContent = message;
+    toast.classList.add('show');
+    
+    setTimeout(() => {
+      toast.classList.remove('show');
+    }, duration);
   }
 
   private setupScoreLibrary(): void {
@@ -705,7 +853,25 @@ class App {
 
   private async loadScoreFromUrl(url: string): Promise<void> {
     try {
-      this.uiController.showMessage('Loading score...');
+      // Hide score library
+      const loadingMessage = document.getElementById('loading-message');
+      if (loadingMessage) loadingMessage.style.display = 'none';
+      
+      // Hide list header and show score header
+      const listHeader = document.getElementById('list-header');
+      if (listHeader) listHeader.style.display = 'none';
+      
+      const scoreHeader = document.getElementById('score-header');
+      if (scoreHeader) scoreHeader.style.display = 'flex';
+      
+      // Show loading message in score display
+      const scoreDisplay = document.getElementById('score-display');
+      if (scoreDisplay) {
+        scoreDisplay.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #999; font-size: 1.2rem;">Loading score...</div>';
+      }
+      
+      // Wait for UI to update
+      await new Promise(resolve => setTimeout(resolve, 50));
       
       const response = await fetch(url);
       if (!response.ok) {
@@ -736,11 +902,6 @@ class App {
     recognition.interimResults = false;
     recognition.lang = 'en-US';
 
-    // Load saved mute state
-    const config = this.getConfig();
-    let isMuted = config.voiceCommandsMuted;
-    this.updateVoiceStatus(isMuted);
-
     let restartAttempts = 0;
     const maxRestartAttempts = 3;
 
@@ -762,7 +923,6 @@ class App {
         }
       } else {
         console.log('Max restart attempts reached, stopping voice recognition');
-        this.updateVoiceStatus(true);
       }
     };
 
@@ -772,25 +932,8 @@ class App {
       
       console.log('Voice command:', command);
       
-      // Always listen for mute/unmute
-      if (command === 'mute') {
-        isMuted = true;
-        this.saveConfig({ voiceCommandsMuted: true });
-        this.updateVoiceStatus(true);
-        console.log('Voice commands muted');
-        return;
-      }
-      
-      if (command === 'unmute') {
-        isMuted = false;
-        this.saveConfig({ voiceCommandsMuted: false });
-        this.updateVoiceStatus(false);
-        console.log('Voice commands unmuted');
-        return;
-      }
-      
-      // Ignore other commands if muted
-      if (isMuted) {
+      // Check if voice commands are enabled
+      if (!this.getConfig().voiceCommandsEnabled) {
         return;
       }
       
@@ -803,7 +946,6 @@ class App {
       // Don't restart on certain errors
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         console.log('Speech recognition not allowed, disabling');
-        this.updateVoiceStatus(true);
         restartAttempts = maxRestartAttempts;
       }
     };
@@ -813,21 +955,6 @@ class App {
       console.log('Voice commands enabled');
     } catch (e) {
       console.error('Failed to start voice recognition:', e);
-    }
-  }
-
-  private updateVoiceStatus(muted: boolean): void {
-    const statusEl = document.getElementById('voice-status');
-    const textEl = document.getElementById('voice-status-text');
-    
-    if (statusEl && textEl) {
-      if (muted) {
-        statusEl.classList.remove('connected');
-        textEl.textContent = 'Voice: Muted';
-      } else {
-        statusEl.classList.add('connected');
-        textEl.textContent = 'Voice: Listening...';
-      }
     }
   }
 
@@ -852,8 +979,8 @@ class App {
       return;
     }
 
-    // Match "forward"
-    if (command === 'forward') {
+    // Match "forward" or "next"
+    if (command === 'forward' || command === 'next') {
       this.goForward();
       return;
     }
@@ -871,6 +998,36 @@ class App {
 
     if (command.includes('left hand') || command === 'left') {
       this.setPracticeMode('left');
+      return;
+    }
+
+    // Match play/stop
+    if (command === 'play') {
+      if (!this.playbackEngine.getIsPlaying()) {
+        const currentIndex = this.practiceEngine.getState().currentNoteGroupIndex;
+        this.practiceEngine.pause();
+        this.playbackEngine.play(currentIndex);
+        const headerPlayBtn = document.getElementById('header-play-btn');
+        if (headerPlayBtn) {
+          headerPlayBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+          headerPlayBtn.classList.add('active');
+        }
+        console.log('Playback started');
+      }
+      return;
+    }
+
+    if (command === 'stop') {
+      if (this.playbackEngine.getIsPlaying()) {
+        this.playbackEngine.stop();
+        const headerPlayBtn = document.getElementById('header-play-btn');
+        if (headerPlayBtn) {
+          headerPlayBtn.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>';
+          headerPlayBtn.classList.remove('active');
+        }
+        this.practiceEngine.start();
+        console.log('Playback stopped');
+      }
       return;
     }
   }
@@ -937,7 +1094,7 @@ class App {
     this.saveConfig({ practiceMode: mode });
     
     // Update UI select
-    const select = document.getElementById('practice-mode-select') as HTMLSelectElement;
+    const select = document.getElementById('header-practice-mode') as HTMLSelectElement;
     if (select) {
       select.value = mode;
     }
@@ -995,7 +1152,6 @@ class App {
     }
   }
 }
-
 // Initialize app when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => new App());

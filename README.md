@@ -1,8 +1,10 @@
 # Music Practice App
 
-**Live Demo:** https://dangarfield.github.io/piano-play-along/
+**Live:** https://dangarfield.github.io/piano-play-along/
 
 Browser-based piano practice app with MIDI keyboard support and real-time sheet music feedback.
+
+![Piano Play Along Demo](demo.png)
 
 ## Quick Start
 
@@ -18,19 +20,21 @@ Open in Chrome, Edge, or Opera (Web MIDI API required). Connect MIDI keyboard, l
 - **Real-time MIDI tracking** - Automatically advances when correct notes are played
 - **Automatic playback** - Play button with accurate timing, tempo, and tied note handling
 - **Tempo extraction** - Reads tempo from MusicXML (sound elements, metronome markings)
-- **Tempo control** - Adjustable playback speed (0.25x - 1.5x)
+- **Tempo control** - Adjustable playback speed (0.2x - 1.5x in 0.1x increments)
 - **Practice modes** - Left hand, right hand, or both hands
 - **Auto-play accompaniment** - Non-practicing hand plays automatically with correct timing
-- **Voice commands** - Hands-free navigation (measure jumping, mode switching)
+- **Voice commands** - Hands-free navigation and playback control
 - **Auto-scroll** - Score follows cursor at top 1/4 of viewport
 - **Key signature detection** - Automatically displays flats or sharps based on score
-- **Keyboard shortcuts** - Arrow keys for note groups, Ctrl+Arrow for measures
+- **Keyboard shortcuts** - Arrow keys for note groups, Ctrl+Arrow for measures, Space for play/pause
 - **Configurable UI** - Adjustable score zoom (5 levels) and keyboard size
-- **Collapsible panel** - Right panel can be hidden for more score space
+- **Collapsible settings panel** - Right panel with settings and voice command reference
 - **Note name overlay** - Optional display of note names on score (with proper accidentals)
 - **Click navigation** - Click measures to jump to that position
 - **Auto-save** - Restores last loaded score on page reload
-- **Responsive** - Re-renders on window resize and panel toggle
+- **Responsive** - Re-renders on window resize
+- **Clean header UI** - Light-themed header with all controls accessible
+- **Score library** - Pre-loaded collection of classical pieces and game music
 
 ## Tech Stack
 
@@ -300,48 +304,52 @@ type PracticeMode = 'left' | 'right' | 'both';
 interface AppConfig {
   practiceMode: PracticeMode;
   zoomLevel: number;           // 0.8, 1.0, 1.25, 1.5, 1.75
-  voiceCommandsMuted: boolean;
+  voiceCommandsEnabled: boolean;
   keyboardSize: number;        // 0 (hide), 100 (normal), 135 (large)
   showNoteNames: boolean;      // Display note names on score
+  tempoMultiplier: number;     // 0.2 - 1.5 in 0.1 increments
 }
 ```
 
 ## User Controls
 
 ### UI Controls
-- **Upload MusicXML** - Open file picker to load score
-- **Clear Score** - Remove current score, reset state
-- **MIDI Device** - Select connected MIDI input device
-- **Practice Mode** - Left hand / Right hand / Both hands
+- **Upload MusicXML** - Open file picker to load score (header button on list page)
+- **Close Score** - Return to score library
+- **MIDI Device** - Select connected MIDI input device (settings panel)
+- **Practice Mode** - Both Hands / Right Hand Only / Left Hand Only (header dropdown)
 - **Score Zoom** - X. Small (0.8x) / Small (1.0x) / Normal (1.25x) / Large (1.5x) / X. Large (1.75x)
 - **Keyboard Size** - Normal (100px) / Large (135px) / Hide
-- **Show Note Names** - Toggle note name overlay on score
-- **Play/Stop** - Start/stop automatic playback
-- **Tempo Slider** - Adjust playback speed (0.25x - 1.5x, default 1.0x)
-- **Back to Start** - Reset to beginning of score
-- **Panel Toggle** - Collapse/expand right panel (◀/▶ button)
+- **Show Note Names** - Toggle note name overlay on score (header button)
+- **Voice Commands** - Toggle voice command recognition (header button)
+- **Play/Stop** - Start/stop automatic playback (header button)
+- **Tempo Slider** - Adjust playback speed (0.2x - 1.5x in 0.1x increments, default 1.0x)
+- **Back to Start** - Reset to beginning of score (header button)
+- **Settings Panel** - Toggle settings panel (gear icon in header)
 
 ### Keyboard Shortcuts
+- **Space** - Play/pause automatic playback
 - **Arrow Right** - Next note group
 - **Arrow Left** - Previous note group
-- **Ctrl+Arrow Right** - Next measure
-- **Ctrl+Arrow Left** - Start of current measure (or previous if already at start)
+- **Ctrl+Arrow Right** (or Cmd on Mac) - Next measure
+- **Ctrl+Arrow Left** (or Cmd on Mac) - Start of current measure (or previous if already at start)
 
 ### Mouse Controls
 - **Click measure** - Jump to first note in that measure
+- **Click score item** - Load score from library
 
 ### Voice Commands
 Speech recognition enabled for hands-free navigation (Chrome only):
 
 - **"measure X"** / **"bar X"** - Jump to measure number
-- **"back to the start"** / **"start"** - Reset to beginning
+- **"start"** - Reset to beginning
 - **"back"** - Previous measure
-- **"forward"** - Next measure
+- **"next"** - Next measure
 - **"left hand"** / **"right hand"** / **"both hands"** - Change practice mode
-- **"mute"** - Disable voice commands
-- **"unmute"** - Enable voice commands
+- **"play"** - Start automatic playback
+- **"stop"** - Stop automatic playback
 
-Voice status indicator shows: "Listening..." (active) or "Muted" (disabled)
+Voice commands can be toggled on/off via the microphone button in the header.
 
 ## Settings Persistence
 
@@ -350,12 +358,10 @@ All settings stored in localStorage:
 **Config object** (`piano-play-along-config`):
 - `practiceMode` - Selected hand mode
 - `zoomLevel` - Score zoom level (default: 1.25)
-- `voiceCommandsMuted` - Voice command state
-- `keyboardSize` - Keyboard display size
+- `voiceCommandsEnabled` - Voice command state (default: true)
+- `keyboardSize` - Keyboard display size (default: 135)
 - `showNoteNames` - Note name overlay toggle (default: false)
-
-**Tempo multiplier** (`tempoMultiplier`):
-- Playback speed adjustment (0.25x - 1.5x, default: 1.0x)
+- `tempoMultiplier` - Playback speed adjustment (0.2x - 1.5x, default: 1.0x)
 
 **Score data** (`piano-play-along-saved-score`):
 - Last loaded MusicXML content (auto-restores on page load)
