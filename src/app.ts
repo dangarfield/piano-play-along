@@ -880,7 +880,7 @@ class App {
       
       const blob = await response.blob();
       const filename = url.split('/').pop() || 'score.mxl';
-      const file = new File([blob], filename, { type: blob.type });
+      const file = new File([blob], filename, { type: 'application/vnd.recordare.musicxml' });
       
       await this.loadScore(file);
     } catch (error) {

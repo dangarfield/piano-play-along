@@ -15,7 +15,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "dl-musescore": "tsx dl-musescore.ts"
   },
   "keywords": [
     "music",
@@ -27,10 +28,22 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@types/yargs": "^17.0.35",
+    "playwright": "^1.58.2",
+    "playwright-extra": "^4.3.6",
+    "puppeteer": "^24.37.2",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "sharp": "^0.34.5",
+    "tsx": "^4.21.0",
     "typescript": "^5.3.3",
-    "vite": "^5.0.11"
+    "vite": "^5.0.11",
+    "xml2js": "^0.6.2",
+    "yargs": "^18.0.0"
   },
   "dependencies": {
+    "@stringsync/musicxml": "^0.3.0",
+    "fast-xml-parser": "^5.3.5",
     "jszip": "^3.10.1",
     "opensheetmusicdisplay": "^1.8.7",
     "tone": "15.1.22",

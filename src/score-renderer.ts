@@ -398,8 +398,13 @@ export class ScoreRenderer {
   }
 
   getTitle(): string {
-    if (!this.osmd || !this.osmd.sheet) return '';
-    return this.osmd.sheet.TitleString || '';
+    if (!this.osmd) return '';
+    try {
+      // @ts-ignore - accessing protected property
+      return this.osmd.sheet?.TitleString || '';
+    } catch {
+      return '';
+    }
   }
 
   private midiToNoteName(midiNote: number): string {

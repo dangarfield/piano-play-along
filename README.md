@@ -1,4 +1,4 @@
-# Music Practice App
+# Piano Play Along
 
 **Live:** https://dangarfield.github.io/piano-play-along/
 

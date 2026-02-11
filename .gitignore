@@ -46,3 +46,4 @@ package-lock.json
 # Files
 musicxml
 test-*
+muse/*
