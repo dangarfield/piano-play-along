@@ -2,7 +2,7 @@
 
 **Live:** https://dangarfield.github.io/piano-play-along/
 
-Browser-based piano practice app with MIDI keyboard support and real-time sheet music feedback.
+Browser-based piano practice app with MIDI keyboard support, real-time sheet music feedback, step-through progression, hand practice modes, and voice commands.
 
 ![Piano Play Along Demo](demo.png)
 
